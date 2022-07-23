@@ -2,6 +2,8 @@
 Dinámica de partículas cargadas en tokamaks con CUDA
 Adaptado del código FOCUS -> https://doi.org/10.1016/j.cpc.2018.07.0180010-4655
 Facundo Sheffield - 2022
+
+Studies the energy after a number of elastic collisions (the Part struct has been modified accordingly)
 */
 
 #include <stdio.h>
@@ -12,7 +14,6 @@ Facundo Sheffield - 2022
 #include "Random123/philox.h"  // random numbers in GPU
 #include "Random123/u01.h"  // to get uniform deviates [0,1]
 
-
 #include "curso.h"
 
 
@@ -22,15 +23,14 @@ Facundo Sheffield - 2022
 const double hB_0   = 2.2;				// Campo Magnetico Toroidal en el eje (Tesla)
 const double a   = 0.67 / 1.67;			// Radio menor del Toroide (previously a_cm)
 const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
-const int gridsize = 10;					// Gridsize, para Init_CI_costado
+const int gridsize = 40;					// Gridsize, para Init_CI_costado
 const double delta = 0.61;				// equilibrium triangularity
 const double R   = 1;				// Radio mayor del Toroide (previously R_cm)
 const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
-const int    Npart  = gridsize*gridsize;           // Numero de partículas
+const int    Npart  = gridsize*gridsize;                       	      // Numero de partículas
 const int    hNstep = 56000000;				// Limite paso temporales.
-const int m_steps = 10; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
 double hgamma;
@@ -75,6 +75,7 @@ __device__ double mp_au = hmp_au;
     double pitch;  			// Vparalela al campo (V_par/V=cos(pitch))
     double flux;
     int flag; 				// Indica algún flag, en este caso es 1 si salió y volvió a entrar y 0 else
+	double Energy[1024];    // can hold up to 1024 energy values for each particle
 	};
 
 #include "Magnetic_field.h"
@@ -86,6 +87,7 @@ struct Position {
 	double r[3];
 	double rg[3];
 	};
+
 // ----------------
 //da la proyección (v_paralela) y actualiza el valor del flujo. Es un poco confuso
 __host__ __device__ double Proyection(double r,double z, double vr,double vt,double vz,double *s_flux){
@@ -121,7 +123,7 @@ __host__ __device__ double Proyection(double r,double z, double vr,double vt,dou
 //Control Trayectoria/Evolución temporal: ---------------------------
 
 __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
-	//Evolución temporal "normal", asigna los tipos de órbitas en d_He.state
+	//Evolución temporal "normal", asigna los tipos de órbitas en d_He.state y la energía en d_Energy
 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	int Nec;		//steps for elastic collisions
@@ -178,7 +180,7 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 		short unsigned int out_counter = 0;  // if out_counter = Period_tol -> escapada
 		bool is_in = true;
 		bool was_outside = false;
-
+		int num_col = 0; // counts the number of collisions computed
 
 		do{ 
 
@@ -196,6 +198,9 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 			}
 			if(n % Nec == 0){
 				Elastic_collisions(d_He+id, 1.0*Nec*Dt, &i, init, id);
+				num_col += 1;
+				d_He[id].Energy[num_col] = d_He[id].E_keV;
+
 				// Randoms numbers needed in elast. collision -------
 				/*
 				i = i + 1;
@@ -327,7 +332,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 
 	if(id < Npart) {
 		n = 0; 		
-		int m = 0;
+		
 		// ya están en las condiciones iniciales	
 		//initial_proyection = Proyection(d_He[id].r[0],d_He[id].r[2],d_He[id].v[0],d_He[id].v[1],d_He[id].v[2],&s_flux);
 		//d_He[id].flux=s_flux;
@@ -341,17 +346,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 
 
 		do{ 
-			if(n % m_steps == 0){
-				// guardando la posición (no queda lindo para m_steps > 5)
-				// d_R[m].r[0] = d_He[0].r[0];	d_R[m].r[1] = d_He[0].r[1];	d_R[m].r[2] = d_He[0].r[2];
-
-				// guardando el centro de giro:
-				double cg[3];
-				centro_giro(d_He+id, cg, y);  
-				d_R[m].r[0] = cg[0];	d_R[m].r[1] = cg[1];	d_R[m].r[2] = cg[2];
-				m++;
-			}
-			
+			d_R[n].r[0] = d_He[0].r[0];	d_R[n].r[1] = d_He[0].r[1];	d_R[n].r[2] = d_He[0].r[2];
 			RK46_NL(d_He+id, y);
 			//Boris_c(d_He+id, y);
 			n++;
@@ -597,6 +592,11 @@ int main(){
 		printf("Error File_Orbit_types");
 		exit(1);}
 
+	FILE *File_Energies = fopen("energies.dat","w");  // Initial Conditions
+	if(File_Energies == NULL){
+		printf("Error File_Energies");
+		exit(1);}
+
 	/*********************************************/ 
 
 	/* Random numbers initialization *****/
@@ -631,6 +631,10 @@ int main(){
 		He[ip].pitch = Proyection(He[ip].r[0],He[ip].r[2],He[ip].v[0],He[ip].v[1],He[ip].v[2],&s_flux);
 		He[ip].flux = s_flux;
 		He[ip].flag = 0;
+
+		for(int i=0; i<1024; i++){
+			He[ip].Energy[i] = 0;
+		}
 		
 		if(He[ip].pitch>0)
 		  He[ip].sense =1;
@@ -708,10 +712,10 @@ int main(){
 	int bananas=0; int clockW = 0; int anticlockW = 0; int escapadas = 0; int Outliers = 0;
 	int reentrantes = 0;
 	
-	bool only_oneP = true;
+	bool only_oneP = false;
 	for(ip=0;ip<Npart;ip++){
-		
-		if (only_oneP && He[ip].state == 4){
+
+		if (only_oneP){
 			only_oneP = false;
 			printf("Particle state: %d", He[ip].state);
 			printf("\nFlag Particle, ip=%d\n", ip);
@@ -728,7 +732,6 @@ int main(){
 			He[ip].v[2]=vz[ip];
 
 			printf("Coordenada inicial radial r=%f\n", He[ip].r[0]);
-			printf("E (keV): %f", He[ip].E_keV);
 
 			// v_paralela y flujo 
 			He[ip].pitch = Proyection(He[ip].r[0],He[ip].r[2],He[ip].v[0],He[ip].v[1],He[ip].v[2],&s_flux);
@@ -747,13 +750,12 @@ int main(){
 			
 			He[ip].time = 0.0;
 
-			int R_size = hNstep/m_steps;
-			struct Position R[R_size];
+			struct Position R[hNstep];
 			struct Position *d_R;
 			struct Part *D_HE;
 
-			cudaMalloc( (void**) &d_R, R_size*sizeof(Position) );
-			cudaMemcpy( d_R, &R, R_size*sizeof(Position), cudaMemcpyHostToDevice );
+			cudaMalloc( (void**) &d_R, hNstep*sizeof(Position) );
+			cudaMemcpy( d_R, &R, hNstep*sizeof(Position), cudaMemcpyHostToDevice );
 			checkCUDAError("Trajectory copy: failed \n");
 			
 			cudaMalloc( (void**) &D_HE, 1*sizeof(Part) );
@@ -777,7 +779,7 @@ int main(){
 			checkCUDAError("Kernel GPU: failed \n");
 			HANDLE_ERROR(cudaFree(D_HE));
 
-			HANDLE_ERROR(cudaMemcpy( &R, d_R, R_size*sizeof(Position), cudaMemcpyDeviceToHost ));
+			HANDLE_ERROR(cudaMemcpy( &R, d_R, hNstep*sizeof(Position), cudaMemcpyDeviceToHost ));
 			checkCUDAError("copy to CPU R: failed \n");
 			HANDLE_ERROR(cudaFree(d_R));
 
@@ -786,7 +788,7 @@ int main(){
 				printf("Error File_orbit");
 			exit(1);}  
 			
-			for(int t_=0;t_<(R_size);t_++){
+			for(int t_=0;t_<hNstep;t_++){
 				fprintf(File_orbit,"%f \t %f \t %f \n",R[t_].r[0], R[t_].r[1], R[t_].r[2]);
 			}
 			fclose(File_orbit);
@@ -826,6 +828,19 @@ int main(){
 	printf("%d, escaparon y volvieron!\n", reentrantes);
 	fprintf(File_Orbit_types, "%d\t%d\t%d\t%d\t%d\n", escapadas, bananas, clockW, anticlockW, Outliers);
 
+	// Saves the energies evolution of each particle
+	for(int ip=0;ip<Npart;ip++){
+		while (He[ip].state == 0 || He[ip].state == 4){  // ignoro las escapadas o outliers
+			ip++;
+		}
+		for(int i=0; i<1024; i++){
+			if (He[0].Energy[i] != 0){
+				fprintf(File_Energies, "%f \t", He[ip].Energy[i]);
+			}
+		}
+		fprintf(File_Energies, "\n");
+	}
+
 
 	//---------------------------------------
 
@@ -845,6 +860,7 @@ int main(){
 	fclose(File_FC);
 	fclose(File_St);
 	fclose(File_Orbit_types);
+	fclose(File_Energies);
 	
 	return 0;
 }  /* end main */

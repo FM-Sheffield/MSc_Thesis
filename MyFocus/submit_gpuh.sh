@@ -5,7 +5,7 @@
 #$ -V
 ##$ -S /bin/bash
 
-#$ -q all.q@compute-0-9
+##$ -q all.q@compute-0-9
 #$ -q gpu.q
 
 

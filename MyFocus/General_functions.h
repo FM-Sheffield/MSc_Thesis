@@ -33,16 +33,31 @@ void Init_rv(double *xx,double *yy, double *zz, double *vx,double *vy,double *vz
 //double dEp_MeV = 0.08;
 __device__ void RK46_NL(struct Part *He,double y);
 __device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time);
+__host__ void H_RK46_NL(struct Part *He,double y);
+__host__ void H_RHS_cil(double *FF, double *u, double y, double q_Z, double time);
 
 // Guiding center:
-//__host__ __device__ void centro_giro(struct Part *He, double *rg, double y);
+__host__ __device__ void centro_giro(struct Part *He, double *rg, double y);
 
 
 /* **********plasma profiles ***************/
 
-__device__ double n_ei(double r); 
+__device__ double n_ei(double r, double th, double z){     // Density profile, note that n_ei = ne = ni and n_tot = 2n_ei
+	double n = 1;  // density profile in units of 10E20 m^{-3}
+	//printf("\nEntró a n_ei\n");
+	//printf("n_ei=%f\n", n);
+	return n; 
+}
 __device__ double f_ei(double r); 		// electrones e iones
-__device__ double Te(double r);		// Temperature prof. (keV)
+__device__ double Te(double r, double th, double z){	   // Temperature profile in keV, note that T_tot = 2Te with Te = Ti
+
+	double psi = Psi_analitico(r, z);
+	//printf("psi=%f\n", psi);
+	double p_adim = -S1 * psi * exp(M * M * r * r);
+	double T_keV = 24.8341698*p_adim*hB_0*hB_0/(n_ei(r, th, z));
+	return T_keV;  	
+}
+
 
 __device__ double f_n(double r); 		// neutros
 
@@ -201,10 +216,7 @@ void Init_CI_costado(double *r,double *theta, double *z, double *vr,double *vthe
 			double V[3] = { V_par[0] + V_per[0], V_par[1] + V_per[1], V_par[2] + V_per[2] };
 
 			// paso las velocidades
-			//vr[IC_gridsize*j+i] = V[0]; vtheta[IC_gridsize*j+i]=V[1]; vz[IC_gridsize*j+i]=V[2];
-
-			// Pongo estas velocidades para comparar GPU y CPU, el Pitch NO va a ser el establecido por la función!!!
-			vr[IC_gridsize*j+i] = 0.2; vtheta[IC_gridsize*j+i]=0.3; vz[IC_gridsize*j+i]=0.9;
+			vr[IC_gridsize*j+i] = V[0]; vtheta[IC_gridsize*j+i]=V[1]; vz[IC_gridsize*j+i]=V[2];
 		}
 	}
 	
@@ -481,11 +493,13 @@ void Init_gc(struct Part *He, double y){
 
 //__device__ void RK46_NL(struct Part *He,double y,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
 
-  __device__ void RK46_NL(struct Part *He,double y){
+__device__ void RK46_NL(struct Part *He,double y){
 	  // y = gamma = y
+	  //printf("Adentro de 'RK46_NL', v=%f\t", (*He).v[0]); 
+
   double u[6]; 	// velocidades y posiciones
-  double w[6];	 	// vel./pos. intermedias
-  double tw;		// tiempo intermedio;
+  double w[6];	// vel./pos. intermedias
+  double tw;	// tiempo intermedio;
   double q_Z;
   int i,j;
 		//factor gamma:
@@ -509,6 +523,7 @@ void Init_gc(struct Part *He, double y){
   u[1] = (*He).v[1]; // v_{\theta}
   u[2] = (*He).v[2]; // v_{z}
   u[3] = (*He).r[0]; // r_{\rho}
+  //printf("RK iteraciones r[0]: %f", u[3]);
   u[4] = (*He).r[1]; // r_{\theta}
   u[5] = (*He).r[2]; // r_{z}
   for(i=0;i<6;i++)
@@ -541,7 +556,7 @@ void Init_gc(struct Part *He, double y){
 }
 //__device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
 	// Right hand side del RK
-  __device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time){
+__device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time){
 	// el tiempo esta agregado para incluir perturbaciones.
   double B[3], E[3],Bzper,Brper,flux; // Campo magnetico y E
 	//		double rc[3];
@@ -569,6 +584,98 @@ void Init_gc(struct Part *He, double y){
 	FF[5] = y*u[2];  //dz/dt
 	return;
 }
+
+__host__ void H_RK46_NL(struct Part *He, double y){
+  //printf("Dentro del RK: %f \t %f \t %f \n",(*He).r[0], (*He).r[1], (*He).r[2]);
+	  // y = gamma = y
+  double u[6]; 	// velocidades y posiciones
+  double w[6];	// vel./pos. intermedias
+  double tw;	// tiempo intermedio;
+  double q_Z;
+  int i,j;
+		//factor gamma:
+	//double y = 14.457*sqrt(mu*Ep_MeV)/( Zp*B_0*a_cm);
+	//double y = 0.02552;
+  q_Z = (double)(*He).q/hZp;
+  // q_Z = (double)(*He).q;
+	//Vector a la funcion Right-hand side
+  double F[6];
+		// Constantes del método integrador
+  double a[6],b[6],c[6];
+  a[0] = 0.0;					b[0]=0.032918605146;	c[0]=0.0;
+  a[1] = -0.737101392796;		b[1]=0.823256998200;	c[1]=0.032918605146;
+  a[2] = -1.634740794341;		b[2]=0.381530948900;	c[2]=0.249351723343;
+  a[3] = -0.744739003780;		b[3]=0.200092213184;	c[3]=0.466911705055;
+  a[4] = -1.469897351522;		b[4]=1.718581042715;	c[4]=0.582030414044;
+  a[5] = -2.813971388035;		b[5]=0.27;				c[5]=0.847252983783;
+	
+	// Condiciones iniciales:
+  u[0] = (*He).v[0]; // v_{\rho}
+  u[1] = (*He).v[1]; // v_{\theta}
+  u[2] = (*He).v[2]; // v_{z}
+  u[3] = (*He).r[0]; // r_{\rho}
+  //printf("RK iteraciones r[0]: %f", u[3]);
+  u[4] = (*He).r[1]; // r_{\theta}
+  u[5] = (*He).r[2]; // r_{z}
+  for(i=0;i<6;i++)
+    w[i] = 0.0;
+
+  for(i=0;i<6;i++){	//etapas
+	  //	tw = ((double)n + c[i])*Dt;
+    tw= (*He).time+c[i]*hDt;  
+    //    RHS_cil(&F[0],&u[0],y,q_Z,tw,B1r1,B1r2,B1z1,B1z2);
+     H_RHS_cil(&F[0],&u[0],y,q_Z,tw);
+    for(j=0;j<6;j++){	// variables (pos./vel.)
+      w[j] = a[i]*w[j] + hDt*F[j];
+      u[j] = u[j] + b[i]*w[j];
+    }
+  }
+	
+  // Actualizo Vel./pos.:
+  for(j=0;j<3;j++){
+    (*He).v[j] = u[j];
+    (*He).r[j] = u[j+3];
+  }
+  (*He).E_keV = (u[0]*u[0] + u[1]*u[1] + u[2]*u[2])*Ep_MeV*1000.0;
+    (*He).time = (*He).time + hDt;
+  //(*He).time =tw;
+
+  return;
+
+	//free(pF);
+	//pF = NULL;
+}
+//__device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
+	// Right hand side del RK
+__host__ void H_RHS_cil(double *FF, double *u, double y, double q_Z, double time){
+	// el tiempo esta agregado para incluir perturbaciones.
+  double B[3], E[3],Bzper,Brper,flux; // Campo magnetico y E
+	//		double rc[3];
+	//		rc[0]=u[3];
+	//		rc[1]=u[4];
+	//		rc[2]=u[5];
+	//	B_circular(&B[0], u[3],u[4],u[5]);
+
+    //aca habria que pasar el gamma=y
+	// actualiza el campo para la nueva posición, no se por qué está definido así pero bueno
+    magnetic_field(&B[0],&E[0], u[3],u[4],u[5]);  // Donde está definida?, parece que Mfield.h, cómo funciona eso? (PREGUNTAR)
+    //magnetic_perturbation( u[3],u[4],u[5],&B1r1[0],&B1r2[0],&B1z1[0],&B1z2[0],&Brper,&Bzper,time); 
+  
+    // B[0]=B[0]+Brper;
+    // B[2]=B[2]+Bzper;
+
+	// (PREGUNTAR) -> la q_Z no debería multiplicar al E? Capaz no porque no se la dinamica con E
+    FF[0] = y*u[1]*u[1]/u[3] + q_Z*(u[1]*B[2]-u[2]*B[1])+E[0];
+	FF[1] =  - y*u[0]*u[1]/u[3] + q_Z*(u[2]*B[0]-u[0]*B[2])+E[1];
+	FF[2] = q_Z*(u[0]*B[1] - u[1]*B[0])+E[2];
+	FF[3] = y*u[0];  //dr/dt
+	FF[4] = y*u[1]/u[3];  //dtheta/dt
+	FF[5] = y*u[2];  //dz/dt
+	return;
+}
+
+
+
 
 
 /*
@@ -641,7 +748,7 @@ __device__ void Boris_c(struct Part *He,double y){
 }
 */
 
-/*
+
 __host__ __device__ void centro_giro(struct Part *He, double *rg, double y){
 	int i;
 	double vp[3];		// velocidad perpendicular.
@@ -652,9 +759,9 @@ __host__ __device__ void centro_giro(struct Part *He, double *rg, double y){
 	rg[1] = (*He).r[1];
 	rg[2] = (*He).r[2];
 	
-	if((*He).q == 0) return;
+	if((*He).q == 0) return;  // partícula neutra
 
-	magnetic_field(&B[0],&E[0], (*He).r[0],(*He).r[1],(*He).r[2],(*He).time,y);
+	magnetic_field(&B[0],&E[0], (*He).r[0],(*He).r[1],(*He).r[2]);
 
 	double Bmod = sqrt(B[0]*B[0] + B[1]*B[1] + B[2]*B[2]);
 
@@ -680,7 +787,7 @@ __host__ __device__ void centro_giro(struct Part *He, double *rg, double y){
 	for(i=0;i<3;i++)
 		rg[i] = (*He).r[i] + rho*e[i];
 }
-*/
+
 
 	
 /* ***** Density profiles **************/

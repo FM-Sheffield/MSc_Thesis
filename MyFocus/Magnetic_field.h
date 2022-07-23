@@ -1,6 +1,6 @@
 /* ******* Magnetic Field *************/
 //Magnetic field selector function:
-__host__ __device__ void magnetic_field(double *B,double *E, double r, double qq, double z,double time,double y);
+__host__ __device__ void magnetic_field(double *B,double *E, double r, double qq, double z);
 //__host__ __device__ void magnetic_perturbation(double rr,double rq,double rz,double *B1r1,double *B1r2,double *B1z1,double *B1z2,double *Brper,double *Bzper,double time);
 //magnetic_pertubation( u[3],u[4],u[5],&B1r1[0],&B1r2[0],&B1z1[0],&Brper,&Bzper);
 
@@ -98,14 +98,14 @@ __host__ __device__ void magnetic_perturbation(double rr,double rq,double rz,dou
 // Global Parameters (analytic equilibrium coeffs)
 const double M = 0.01;
 // Negative T_2 - DIIID - test cand 4 (A=0.567 , V=3.71):
-const double C1 = -0.004892540131; const double C2 = 0.2072398556; const double C3 = 0.5556866341; const double C4 = 0.1702685657; 
-const double C5 = 0.2663315198; const double C6 = 0.01729018624; const double C7 = -0.05564634276; 
-const double C8 = -0.03619877453; const double S1 = -0.5395195344810759; const double S2 = -0.004129137273799056;
+//const double C1 = -0.004892540131; const double C2 = 0.2072398556; const double C3 = 0.5556866341; const double C4 = 0.1702685657; 
+//const double C5 = 0.2663315198; const double C6 = 0.01729018624; const double C7 = -0.05564634276; 
+//const double C8 = -0.03619877453; const double S1 = -0.5395195344810759; const double S2 = -0.004129137273799056;
 
 //Positive T_2 - DIIID - test cand 4 (A = 0.568, V = 3.405):
-//double C1 = 0.001812141542; double C2 = 0.4717347435; double C3 = 0.5313153095; double C4 = 0.4407871704; double C5 = 0.4130720551;
-//double C6 = 0.02982725318; double C7 = -0.04191041218; double C8 = 0.0214024026;
-//double S1 = -0.6244922921; double S2 = -0.02969385881;
+const double C1 = 0.001812141542; const double C2 = 0.4717347435; const double C3 = 0.5313153095; const double C4 = 0.4407871704; 
+const double C5 = 0.4130720551; const double C6 = 0.02982725318; const double C7 = -0.04191041218; const double C8 = 0.0214024026;
+const double S1 = -0.6244922921; const double S2 = -0.02969385881;
 
 // Calcula el flujo poloidal analitico en r, z
 __host__ __device__ double Psi_analitico(double R, double Z) {
