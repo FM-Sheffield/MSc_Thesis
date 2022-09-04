@@ -176,7 +176,7 @@ void  campo_mag(double *B, double r, double qq, double zc){
 
 void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_sd, double Energy_MeV){
 	// Inicializa un haz de Deuterio neutro inyecado desde pos
-	double s_flux;
+	double s_flux;  // dummy flux variable
 
 	for (unsigned int i = 0; i < Npart; i++){
 		He[i].E_keV = Energy_MeV*1000.0;
@@ -201,7 +201,7 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 			Ran[1] = Ran[1]*z_sd;
 
 		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-4*z_sd || Ran[1]>4*z_sd);*/
-		Ran[0]=0.01; Ran[1]=-0.1;
+		Ran[0]=0.01; Ran[1]=0.0;
 		
 		// Initial pos
 		He[i].r[0]= r;
@@ -214,8 +214,9 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 
 		
 		// Velocities, tilt angle refers to the one in the X-Y plane
+		// 0.6 and 0.8 to model the DIII-D data
 		double vx = -r/sqrt(r*r+z*z)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
-		double vy = -r/sqrt(r*r+z*z)*0.8;
+		double vy = r/sqrt(r*r+z*z)*0.8;
 		double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
 		printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
 
@@ -234,14 +235,14 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		else
 		  He[i].sense =-1;
 		
-		He[i].state = -1;  // indeterminado
+		He[i].state = -1;  // no determinado
 
 		He[i].time = 0.0;
 
 		// Inelastic col:
 		#ifdef Z_1			
 			He[i].n = 1;				// quantum number, fundamental state s1
-			He[i].timeAt = 0;      //(IN SEC.) time for atomic de-excitation
+			He[i].timeAt = 0;      //(IN SEC.) time in AU, for atomic de-excitation
 		#endif
 	}
 }

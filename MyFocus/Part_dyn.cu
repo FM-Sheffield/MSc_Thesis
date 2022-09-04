@@ -26,8 +26,8 @@ Facundo Sheffield - 2022
 const double hB_0   = 2.2;				// Campo Magnetico Toroidal en el eje (Tesla)
 const double a   = 0.67 / 1.67;			// Radio menor del Toroide (previously a_cm)
 
-const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
-const int gridsize = 32;				// Gridsize, para Init_CI_costado
+// const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
+// const int gridsize = 32;				// Gridsize, para Init_CI_costado
 
 const double delta = 0.61;				// equilibrium triangularity
 const double k_ = 1.43;					// equilibrium elongation, used to check if a particle has escaped the configuration
@@ -37,7 +37,7 @@ const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
 const int    Npart  = 1024;	           // Numero de partículas
-const int    hNstep = 200;				// Limite paso temporales.
+const int    hNstep = 20000;				// Limite paso temporales.
 const int m_steps = 1; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
@@ -199,7 +199,7 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 			}  */
 
 			
-			if(n%Nic == 0 && d_He[id].q == 0){  
+			if(n%Nic == 0 && d_He[id].q == 0 && s_flux > 0){  
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
 
 				// NOTA: En realidad así cómo está el pitch está un paso atrás, asumo que no afecta significativamente
@@ -442,7 +442,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 				//}
 			}  */
 
-			if(n%Nic == 0 && d_He[id].q == 0){  // preguntar césar
+			if(n%Nic == 0 && d_He[id].q == 0 && s_flux > 0){  // preguntar césar
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
 
 				//printf("carga: %d\t pos_r: %f\n", d_He[id].q, d_He[id].r[0]);
@@ -618,50 +618,17 @@ int main(){
 	/* ***** Particle Initialization *********/
 
 	//Init_rv(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0],&tiempo,Npart);
-	Init_CI_costado(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0], pitch_deg, gridsize, delta);
+	//Init_CI_costado(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0], pitch_deg, gridsize, delta);
 
-	//Init_Neutral_Beam(He, theta_beam, theta_beam_sd, z_beam, z_beam_sd, Ep_MeV);
+	Init_Neutral_Beam(He, theta_beam, theta_beam_sd, z_beam, z_beam_sd, Ep_MeV);
 
 	// Save initial conditions
+	fprintf(File_IC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - vparalela - sentido\n");
 	for(ip=0;ip<Npart;ip++){
-		He[ip].E_keV = Ep_MeV*1000.0;
-		He[ip].Z = (int)hZp;
-		He[ip].q = 0; //(int)hZp;  //neutras
-
-		He[ip].r[0]=xx[ip];
-		He[ip].r[1]=yy[ip];
-		He[ip].r[2]=zz[ip];
-		He[ip].v[0]=vx[ip];
-		He[ip].v[1]=vy[ip];
-		He[ip].v[2]=vz[ip];
-
-		// v_paralela y flujo 
-		He[ip].pitch = Proyection(He[ip].r[0],He[ip].r[2],He[ip].v[0],He[ip].v[1],He[ip].v[2],&s_flux);
-		He[ip].flux = s_flux;
-		He[ip].flag = 0;
-		
-		if(He[ip].pitch>0)
-		  He[ip].sense =1;
-		else
-		  He[ip].sense =-1;
-		
-		if(s_flux<0)		  
-		  He[ip].state = 0;
-		else
-		  He[ip].state = -1;
-		
-		He[ip].time = 0.0;
-
-		// Inelastic col:
-			#ifdef Z_1			
-				He[ip].n = 1;				// quantum number, fundamental state s1
-				He[ip].timeAt = 0;         //(IN SEC.) time in AU, for atomic de-excitation
-			#endif
-
-		fprintf(File_IC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - vparalela - sentido\n");
 		fprintf(File_IC,"%d %f %f \t %f \t %f \t %f \t %f \t %f %f %f %f %d\n",ip,He[ip].time, He[ip].r[0], He[ip].r[1],He[ip].r[2],
 				He[ip].v[0], He[ip].v[1], He[ip].v[2],He[ip].E_keV,He[ip].flux,He[ip].pitch, He[ip].sense);
 	}
+
 
 	double hgamma = sqrt(10 * Ep_MeV) * 0.01758437;
 	printf("E in: %.14f keV \n", He[0].E_keV);
@@ -742,7 +709,7 @@ int main(){
 	int bananas=0; int clockW = 0; int anticlockW = 0; int escapadas = 0; int Outliers = 0;
 	int reentrantes = 0;
 	
-	bool only_oneP = false;
+	bool only_oneP = true;
 	for(ip=0;ip<Npart;ip++){
 		
 		// Si no todas las particulas se ionizaron pueden haber problemas por no estar bien alojada la mem de ionization_data
@@ -759,18 +726,12 @@ int main(){
 			He[ip].q = 0;
 
 
-			He[ip].r[0]=xx[ip];
-			He[ip].r[1]=yy[ip];
-			He[ip].r[2]=zz[ip];
-			He[ip].v[0]=vx[ip];
-			He[ip].v[1]=vy[ip];
-			He[ip].v[2]=vz[ip];
-
-			/*
+			
 			double r = R+a;  // radio exterior del toroide (R_out)
 
 			double Ran[2]; // [ran_theta, ran_z]
 			// Spatial distribution
+			/*
 			while (Ran[0]<-4*theta_beam_sd || Ran[0]>4*theta_beam_sd || Ran[1]<-4*z_beam_sd || Ran[1]>4*z_beam_sd){
 				Ran[0] = ran2(&init);
 				Ran[1] = ran2(&init);
@@ -781,7 +742,7 @@ int main(){
 				Ran[1] = Ran[1]*z_beam_sd;
 
 			}
-			
+			*/Ran[0]=0.01; Ran[1]=0.0;
 
 			// FALTA CAMBIAR ESTO PARA LAS VELOCIDADES
 			// Initial pos
@@ -789,11 +750,13 @@ int main(){
 			He[ip].r[1]= theta_beam + Ran[0];
 			He[ip].r[2]= z_beam + Ran[1];
 
+			r = He[ip].r[0];
+			double z = He[ip].r[2];
 
 			// Velocities, tilt angle refers to the one in the X-Y plane
-			double vx = -r/sqrt(r*r+z_beam*z_beam)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
-			double vy = -r/sqrt(r*r+z_beam*z_beam)*0.8;
-			double vz = -z_beam/sqrt(r*r+z_beam*z_beam);  //-Vmod * cos(ang(z, r))
+			double vx = -r/sqrt(r*r+z*z)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
+			double vy = -r/sqrt(r*r+z*z)*0.8;
+			double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
 
 			
 
@@ -801,7 +764,7 @@ int main(){
 			He[ip].v[0]=vx*cos(He[ip].r[1]) + vy*sin(He[ip].r[1]);
 			He[ip].v[1]=-vx*sin(He[ip].r[1]) + vy*cos(He[ip].r[1]);
 			He[ip].v[2]=vz;
-			*/
+			
 
 			printf("Coordenada inicial radial r=%f\n", He[ip].r[0]);
 			printf("E (keV): %f", He[ip].E_keV);
