@@ -594,7 +594,7 @@ int main(){
 		printf("Error File_Orbit_types");
 		exit(1);}
 
-	FILE *File_Energies = fopen("energies.dat","w");  // Initial Conditions
+	FILE *File_Energies = fopen("energies.dat","w");  
 	if(File_Energies == NULL){
 		printf("Error File_Energies");
 		exit(1);}

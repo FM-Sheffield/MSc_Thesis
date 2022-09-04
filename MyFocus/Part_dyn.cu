@@ -26,16 +26,18 @@ Facundo Sheffield - 2022
 const double hB_0   = 2.2;				// Campo Magnetico Toroidal en el eje (Tesla)
 const double a   = 0.67 / 1.67;			// Radio menor del Toroide (previously a_cm)
 
-//const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
-//const int gridsize = 10;				// Gridsize, para Init_CI_costado
+const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
+const int gridsize = 32;				// Gridsize, para Init_CI_costado
 
 const double delta = 0.61;				// equilibrium triangularity
+const double k_ = 1.43;					// equilibrium elongation, used to check if a particle has escaped the configuration
+const double Zx = k_*a; 				// X-point z coordinate, used to check if a particle has escaped the configuration
 const double R   = 1;				// Radio mayor del Toroide (previously R_cm)
 const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
-const int    Npart  = 1;	           // Numero de partículas
-const int    hNstep = 560;				// Limite paso temporales.
+const int    Npart  = 1024;	           // Numero de partículas
+const int    hNstep = 200;				// Limite paso temporales.
 const int m_steps = 1; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
@@ -45,6 +47,12 @@ const double hta    = 1.0439E-8*hmu/(hZp*hB_0);		// sec. (Campo en Teslas) (ITER
 const double hc_cgs = 2.9979E10;			// speed of light
 const double ha0_cgs = 5.2918E-9;			// Bohr radius
 const double hmp_au = 1836.2;				// proton mass (in a.u.)
+
+// For Init_Neutral_Beam() initiallization
+const double theta_beam = -0.476;  // radians
+const double theta_beam_sd = 0.165/3;  // ~3.2°
+const double z_beam = 0;
+const double z_beam_sd = 0.2*R/3;   // elijo tal que 3*sigma = 0.2R
 
 // DEVICE ************************
 __device__ double dEp_MeV = Ep_MeV;
@@ -82,9 +90,11 @@ __device__ double mp_au = hmp_au;
     double flux;
     int flag; 				// Indica algún flag, en este caso es 1 si salió y volvió a entrar y 0 else
 
+	double Ionization_data[5];  // saves certain data at ionization. In order, [r, theta, z, v_pll/v, E_kev] 
+
 	#ifdef Z_1			
 	int n;				// for Deuterium: quantum number, for inelastic col
-	double timeAt;      //(IN SEC.)	// for Deuterium: time for atomic de-excitation
+	double timeAt;      //(IN SEC.)	// for Deuterium: time in AU
 	#endif
 	};
 
@@ -126,7 +136,7 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 	int j = 0;
 
 	kk=0;
-	short unsigned int Period_tol = 0;  // N° de pasos temporales que puede estar fuera del eq (~1 períodos)
+	short unsigned int Period_tol = 25;  // N° de pasos temporales que puede estar fuera del eq (~1 períodos)
 	// Period_tol = 0 si los perfiles de n y T no están definidos afuera y quiere usar colisiones, sino se podría pedir que no hayan col
 	// fuera de la separatriz, pero no tiene mucho sentido agregarlo porque hay efectos de SOL no tenidos en cuenta.
 
@@ -188,8 +198,19 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 				//}
 			}  */
 
-			if(n%Nic == 0){  // preguntar césar
+			
+			if(n%Nic == 0 && d_He[id].q == 0){  
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
+
+				// NOTA: En realidad así cómo está el pitch está un paso atrás, asumo que no afecta significativamente
+			
+				if (d_He[id].q != 0){  // saves data at ionization
+					d_He[id].Ionization_data[0] = d_He[id].r[0];
+					d_He[id].Ionization_data[1] = d_He[id].r[1];
+					d_He[id].Ionization_data[2] = d_He[id].r[2];
+					d_He[id].Ionization_data[3] = d_He[id].pitch/(d_He[id].v[0]*d_He[id].v[0]+d_He[id].v[1]*d_He[id].v[1]+d_He[id].v[2]*d_He[id].v[2]);  // v_pll/v
+					d_He[id].Ionization_data[4] = d_He[id].E_keV;
+				}
 				//printf("carga: %d\n", d_He[id].q);
 
 				//if(q1 != d_He[id].q){
@@ -198,7 +219,7 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 				//}
 			}
 
-			// Elastic collisions: ------------------------------------------
+  			// Elastic collisions: ------------------------------------------
 			// faltaría chequear estos valores de Nec con el cálculo analítico del tiempo de frenamiento para Deuterio
 			if(d_He[id].E_keV > 50){
 				Nec = 100000;  
@@ -250,27 +271,34 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 				printf("proyection= %e\n", proyection);  // for debug
 			}*/
 			d_He[id].flux=s_flux;
-			if(s_flux<0){  
-				was_outside = true;
-				is_in = false;
-                
-				if (out_counter == Period_tol) {
-					d_He[id].state=0;  // escapada
-                    break;
-                }
-				out_counter++;
 
-			} else {
-				is_in = true;
-				out_counter=0;
-				if(was_outside && is_in){
-					d_He[id].flag = 1;
-				}
+			if(d_He[id].r[0]<0.8*(R-a) || d_He[id].r[0]>1.2*(R+a) || d_He[id].r[2]<-1.2*Zx || d_He[id].r[2]>1.2*Zx){
+				d_He[id].state=0;  // escapada, fuera de la configuración
 			}
 
-			if(n>500000 && (proyection*initial_proyection)<0){  // puedo ponerle más condiciones para determinar mejor las órbitas
-				d_He[id].state=1;  // banana
-				// break;  // puedo comentar el break para ver la órbita completa
+			if(d_He[id].q != 0){  // no aplica a particulas neutras
+				if(s_flux<0){  
+					was_outside = true;
+					is_in = false;
+					
+					if (out_counter == Period_tol) {
+						d_He[id].state=0;  // escapada
+						break;
+					}
+					out_counter++;
+					
+				} else {
+					is_in = true;
+					out_counter=0;
+					if(was_outside && is_in){
+						d_He[id].flag = 1;
+					}
+				}
+
+				if(n>500000 && (proyection*initial_proyection)<0){  // puedo ponerle más condiciones para determinar mejor las órbitas
+					d_He[id].state=1;  // banana
+					// break;  // puedo comentar el break para ver la órbita completa
+				}
 			}
 			d_He[id].pitch=proyection;
 			
@@ -287,10 +315,25 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 				}
 			} 
 		} else {
+			printf("ERROR: E_keV = %f\n", d_He[id].E_keV);
 			d_He[id].state = 4;  // Outlier, energía cinética negativa o NaN
 		}
 	}
 }
+
+/*
+Copilot test
+// This function evolves the dynamical system in time.
+// It is called by the main function.
+__global__ void Evolve_system(struct Part *d_He, int N, double Dt, double *Ran_EC, int init, int id){
+	int idx = threadIdx.x + blockIdx.x * blockDim.x;
+	if (idx < N) {
+		Evolve_system_kernel(d_He, N, Dt, Ran_EC, init, idx);
+	}
+}
+
+*/
+
 
 // Evoluciona una particula (con CUDA) y retorna un puntero con las coordenadas en función del tiempo
 __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Position * d_R) {
@@ -318,7 +361,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 
 	kk=0;
 	// Period tol no debería ser mayor a 6
-	short unsigned int Period_tol = 0;  // N° de pasos temporales que puede estar fuera del eq (~1 períodos)
+	short unsigned int Period_tol = 25;  // N° de pasos temporales que puede estar fuera del eq (~1 períodos)
 
 	// Colisiones elásticas:
 
@@ -354,7 +397,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 
 
 		do{ 
-			//if(n % m_steps == 0){
+			if(n % m_steps == 0){
 				// guardando la posición (no queda lindo para m_steps > 5)
 				d_R[m].r[0] = d_He[0].r[0];	d_R[m].r[1] = d_He[0].r[1];	d_R[m].r[2] = d_He[0].r[2];
 
@@ -363,7 +406,7 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 				centro_giro(d_He+id, cg, y);  
 				d_R[m].r[0] = cg[0];	d_R[m].r[1] = cg[1];	d_R[m].r[2] = cg[2];*/
 				m++;
-			//}
+			}
 			
 			RK46_NL(d_He+id, y);
 			//Boris_c(d_He+id, y);
@@ -399,8 +442,9 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 				//}
 			}  */
 
-			if(n%Nic == 0){  // preguntar césar
+			if(n%Nic == 0 && d_He[id].q == 0){  // preguntar césar
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
+
 				//printf("carga: %d\t pos_r: %f\n", d_He[id].q, d_He[id].r[0]);
 
 				//if(q1 != d_He[id].q){
@@ -465,28 +509,36 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 				printf("proyection= %e\n", proyection);  // for debug
 			}*/
 			d_He[id].flux=s_flux;
-			if(s_flux<0){  
-				was_outside = true;
-				is_in = false;
-                
-				if (out_counter == Period_tol) {
-					d_He[id].state=0;  // escapada
-                    break;
-                }
-				out_counter++;
-				
-			} else {
-				is_in = true;
-				out_counter=0;
-				if(was_outside && is_in){
-					d_He[id].flag = 1;
+
+			if(d_He[id].r[0]<0.8*(R-a) || d_He[id].r[0]>1.2*(R+a) || d_He[id].r[2]<-1.2*Zx || d_He[id].r[2]>1.2*Zx){
+				d_He[id].state=0;  // escapada, fuera de la configuración
+			}
+
+			if(d_He[id].q != 0){  // no aplica a particulas neutras
+				if(s_flux<0){  
+					was_outside = true;
+					is_in = false;
+					
+					if (out_counter == Period_tol) {
+						d_He[id].state=0;  // escapada
+						break;
+					}
+					out_counter++;
+					
+				} else {
+					is_in = true;
+					out_counter=0;
+					if(was_outside && is_in){
+						d_He[id].flag = 1;
+					}
+				}
+
+				if(n>500000 && (proyection*initial_proyection)<0){  // puedo ponerle más condiciones para determinar mejor las órbitas
+					d_He[id].state=1;  // banana
+					// break;  // puedo comentar el break para ver la órbita completa
 				}
 			}
 
-			if(n>500000 && (proyection*initial_proyection)<0){  // puedo ponerle más condiciones para determinar mejor las órbitas
-				d_He[id].state=1;  // banana
-				// break;  // puedo comentar el break para ver la órbita completa
-			}
 			d_He[id].pitch=proyection;
 			
 		}while(n<Nstep && d_He[id].state != 0 );
@@ -507,117 +559,10 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 	}
 }
 
-
-
-// Evoluciona una particula (sin CUDA) y genera un file con las coordenadas en función del tiempo (not working)
-void singleP_Evol_Not_implemented (struct Part *d_He2, int ip){
-		//# no será que hay problemas de nombre????
-		FILE *File_orbit = fopen("singleP_Evol.dat","w");  // Creates a File
-		if(File_orbit == NULL){
-			printf("Error File_orbit");
-			exit(1);}  
-			
-		fprintf(File_orbit,"# Particula N: %d\n",ip);
-
-		int id = 0;
-		
-		int Nec;		//steps for elastic collisions
-		int Nic = 1000; 	//steps for inelastic collisions
-		int n = 0;
-		int i,kk;	//semilla random numbers
-		int q1 = 2;
-		double qq00,qq11,omega=16.e-4,tiempo,tiempo0; //flag
-		double s_flux;
-
-		double y;  // gamma
-
-		//sense variables ------------
-		double t0 = 0.0;
-		double vpar, vpar_t;
-		double B[3], E[3];
-		y = sqrt(10*Ep_MeV) * 0.01758437;  // gamma DIIID, 0.0175 es para 100 keV
-		double initial_proyection=0.0,proyection=0.0;
-
-		//Control Trayectoria: ------- 
-		int j = 0;
-		kk=0;
-		short unsigned int Period_tol = 20;  // N° de pasos temporales que puede estar fuera del eq (1.5 períodos)
-		int Allowed_Nstep = hNstep;  // en caso de que salga de del equilibrio
-
-		
-
-			n = 0; 		
-			initial_proyection = (*d_He2).pitch;  
-			//printf("proyection= %e\n", initial_proyection);  //proyection= 9.000147e-01 para debuggear
-
-			short unsigned int out_counter = 0;  // if out_counter = Period_tol -> escapada
-			bool is_in = true;
-			bool was_outside = false;
-
-			printf("%f \t %f \t %f \n",(*d_He2).r[0], (*d_He2).r[1], (*d_He2).r[2]);
-			do{ 
-				H_RK46_NL(d_He2, y);
-				//Boris_c(d_He+id, y);
-
-				// saves the full trajectory
-				/*if(n==0){
-					printf("%f \t %f \t %f \n",(*d_He2).r[0], (*d_He2).r[1], (*d_He2).r[2]);
-				}
-				fprintf(File_orbit,"%f \t %f \t %f \n",(*d_He2).r[0], (*d_He2).r[1], (*d_He2).r[2]);
-				*/
-				n++;
-				// ----------------------------------------------------------------
-				// nueva vparalela
-				proyection=Proyection((*d_He2).r[0],(*d_He2).r[2],(*d_He2).v[0],(*d_He2).v[1],(*d_He2).v[2],&s_flux);
-				/*if(n==3){
-					printf("proyection= %e\n", proyection);  // for debug
-				}*/
-				(*d_He2).flux=s_flux;
-				if(s_flux<0){  
-					was_outside = true;
-					out_counter++;
-
-					if (n<hNstep-Period_tol && is_in){
-						Allowed_Nstep = n + Period_tol;
-					}
-
-					is_in = false;
-					
-					if (out_counter == Period_tol) {
-						(*d_He2).state=0;  // escapada
-						break;
-					}
-				} else {
-					is_in = true;
-					out_counter=0;
-					if(was_outside && is_in){
-						(*d_He2).flag = 1;
-					}
-				}
-
-				if(n>10000 && (proyection*initial_proyection)<0){  // puedo ponerle más condiciones para determinar mejor las órbitas
-					(*d_He2).state=1;  // banana
-					break;
-				}
-				(*d_He2).pitch=proyection;
-				
-			}while(n<Allowed_Nstep && (*d_He2).state != 0 );
-
-			if ((*d_He2).state == -1){  // sin asignar 
-				if((*d_He2).pitch>0){
-					(*d_He2).state = 2;  // Clockwise
-				} else if((*d_He2).pitch<0){
-					(*d_He2).state = 3;  // Anticlockwise
-				} else {
-					(*d_He2).state = 4;  // Outlier!
-				}
-			}
-		fclose(File_orbit);
-}
-
 int main(){
 	// Nota: en realidad xx = r, yy=theta, zz=z
     double Ipos[3], Ivel[3], tiempo, s_flux;
+	double xx[Npart],yy[Npart],zz[Npart],vx[Npart],vy[Npart],vz[Npart];
 	
 	struct Part He[Npart];
 	int ip;         			// Particle index
@@ -651,6 +596,14 @@ int main(){
 		printf("Error File_Orbit_types");
 		exit(1);}
 
+	FILE *File_Ion = fopen("ionization.dat","w");  // data at ionization
+	if(File_Ion == NULL){
+		printf("Error File_Ion");
+		exit(1);}
+
+	fprintf(File_Ion,"# Particle stats at ionization.\n# R; theta; z; v_pll/v; E_kev\n");
+
+
 	/*********************************************/ 
 
 	/* Random numbers initialization *****/
@@ -665,21 +618,56 @@ int main(){
 	/* ***** Particle Initialization *********/
 
 	//Init_rv(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0],&tiempo,Npart);
-	//Init_CI_costado(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0], pitch_deg, gridsize, delta);
+	Init_CI_costado(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0], pitch_deg, gridsize, delta);
 
-	double pi = 3.1415926535897932385;
-	Ipos[0] = 1; Ipos[1] = 1.5*pi; Ipos[2] = 0;
-	Ivel[0] = 1/sqrt(2); Ivel[1] = 1/sqrt(2); Ivel[2] = 0;
+	//Init_Neutral_Beam(He, theta_beam, theta_beam_sd, z_beam, z_beam_sd, Ep_MeV);
 
-	Init_Neutral_Beam(He, Ipos, Ivel, Ep_MeV);
+	// Save initial conditions
+	for(ip=0;ip<Npart;ip++){
+		He[ip].E_keV = Ep_MeV*1000.0;
+		He[ip].Z = (int)hZp;
+		He[ip].q = 0; //(int)hZp;  //neutras
+
+		He[ip].r[0]=xx[ip];
+		He[ip].r[1]=yy[ip];
+		He[ip].r[2]=zz[ip];
+		He[ip].v[0]=vx[ip];
+		He[ip].v[1]=vy[ip];
+		He[ip].v[2]=vz[ip];
+
+		// v_paralela y flujo 
+		He[ip].pitch = Proyection(He[ip].r[0],He[ip].r[2],He[ip].v[0],He[ip].v[1],He[ip].v[2],&s_flux);
+		He[ip].flux = s_flux;
+		He[ip].flag = 0;
+		
+		if(He[ip].pitch>0)
+		  He[ip].sense =1;
+		else
+		  He[ip].sense =-1;
+		
+		if(s_flux<0)		  
+		  He[ip].state = 0;
+		else
+		  He[ip].state = -1;
+		
+		He[ip].time = 0.0;
+
+		// Inelastic col:
+			#ifdef Z_1			
+				He[ip].n = 1;				// quantum number, fundamental state s1
+				He[ip].timeAt = 0;         //(IN SEC.) time in AU, for atomic de-excitation
+			#endif
+
+		fprintf(File_IC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - vparalela - sentido\n");
+		fprintf(File_IC,"%d %f %f \t %f \t %f \t %f \t %f \t %f %f %f %f %d\n",ip,He[ip].time, He[ip].r[0], He[ip].r[1],He[ip].r[2],
+				He[ip].v[0], He[ip].v[1], He[ip].v[2],He[ip].E_keV,He[ip].flux,He[ip].pitch, He[ip].sense);
+	}
 
 	double hgamma = sqrt(10 * Ep_MeV) * 0.01758437;
 	printf("E in: %.14f keV \n", He[0].E_keV);
-	printf("x in: %.14f \n", x);
+	// printf("x in: %.14f \n", x);
 	
 	/* ***** Output Statistical ****** */
-
-
 	fprintf(File_St, "gamma: \t %f \n", sqrt(10*Ep_MeV) * 0.01758437);
 	fprintf(File_St,"Initial \n");
 	fprintf(File_St, "Dt: \t %f \n", hDt);
@@ -694,6 +682,12 @@ int main(){
 	/* ******** Particle evolution **********/
 	
 	gettimeofday(&start,NULL);
+
+	gettimeofday(&finish,NULL);
+	
+
+	elapsed_time = (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)/1.0e6;
+	printf("Elapsed time before evolution: \t %f sec.\n", elapsed_time);
 
 	/***** CUDA ******/
 	load_atomic_processes();	// loads the data from the collision matrices to the GPU
@@ -718,15 +712,27 @@ int main(){
 
 	//Control Trayectoria: -------------------------
 	Evolution<<< grid_size,block_size >>> (d_He, Npart, init);
+
+	// After Evol
+	gettimeofday(&finish,NULL);
+	elapsed_time = (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)/1.0e6;
+	printf("Elapsed time AFTER evolution: \t %f sec.\n", elapsed_time);
 	
 
 	checkCUDAError("Kernel GPU: failed \n");
 	/*  ********   */
+	
 	HANDLE_ERROR(cudaMemcpy(&He, d_He, Npart*sizeof(Part), cudaMemcpyDeviceToHost));
 	checkCUDAError("copy to CPU: failed \n");
 	HANDLE_ERROR(cudaFree(d_He));
+	
 
 	int jj;
+
+	// After Memcpy
+	gettimeofday(&finish,NULL);
+	elapsed_time = (finish.tv_sec - start.tv_sec) + (finish.tv_usec - start.tv_usec)/1.0e6;
+	printf("Elapsed time AFTER Memcopy: \t %f sec.\n", elapsed_time);
 
 	// Posiciones finales y estadisticas--------------------
 	fprintf(File_FC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - pitch - sentido\n");
@@ -736,9 +742,13 @@ int main(){
 	int bananas=0; int clockW = 0; int anticlockW = 0; int escapadas = 0; int Outliers = 0;
 	int reentrantes = 0;
 	
-	bool only_oneP = true;
+	bool only_oneP = false;
 	for(ip=0;ip<Npart;ip++){
 		
+		// Si no todas las particulas se ionizaron pueden haber problemas por no estar bien alojada la mem de ionization_data
+		fprintf(File_Ion," %f \t %f \t %f \t %f \t %f\n", He[ip].Ionization_data[0], He[ip].Ionization_data[1], He[ip].Ionization_data[2],
+		He[ip].Ionization_data[3], He[ip].Ionization_data[4]);
+
 		if (only_oneP){  // This should probably be its own function
 			only_oneP = false;
 			printf("Particle state: %d", He[ip].state);
@@ -748,12 +758,50 @@ int main(){
 			He[ip].Z = (int)hZp;
 			He[ip].q = 0;
 
-			He[ip].r[0]=Ipos[0];
-			He[ip].r[1]=Ipos[1];
-			He[ip].r[2]=Ipos[2];
-			He[ip].v[0]=Ivel[0];
-			He[ip].v[1]=Ivel[1];
-			He[ip].v[2]=Ivel[2];
+
+			He[ip].r[0]=xx[ip];
+			He[ip].r[1]=yy[ip];
+			He[ip].r[2]=zz[ip];
+			He[ip].v[0]=vx[ip];
+			He[ip].v[1]=vy[ip];
+			He[ip].v[2]=vz[ip];
+
+			/*
+			double r = R+a;  // radio exterior del toroide (R_out)
+
+			double Ran[2]; // [ran_theta, ran_z]
+			// Spatial distribution
+			while (Ran[0]<-4*theta_beam_sd || Ran[0]>4*theta_beam_sd || Ran[1]<-4*z_beam_sd || Ran[1]>4*z_beam_sd){
+				Ran[0] = ran2(&init);
+				Ran[1] = ran2(&init);
+				Ran_gauss(&Ran[0], 1);
+
+				// Reescale to the characteristic sizes:
+				Ran[0] = Ran[0]*theta_beam_sd;
+				Ran[1] = Ran[1]*z_beam_sd;
+
+			}
+			
+
+			// FALTA CAMBIAR ESTO PARA LAS VELOCIDADES
+			// Initial pos
+			He[ip].r[0]= r;
+			He[ip].r[1]= theta_beam + Ran[0];
+			He[ip].r[2]= z_beam + Ran[1];
+
+
+			// Velocities, tilt angle refers to the one in the X-Y plane
+			double vx = -r/sqrt(r*r+z_beam*z_beam)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
+			double vy = -r/sqrt(r*r+z_beam*z_beam)*0.8;
+			double vz = -z_beam/sqrt(r*r+z_beam*z_beam);  //-Vmod * cos(ang(z, r))
+
+			
+
+			// Initial velocity:
+			He[ip].v[0]=vx*cos(He[ip].r[1]) + vy*sin(He[ip].r[1]);
+			He[ip].v[1]=-vx*sin(He[ip].r[1]) + vy*cos(He[ip].r[1]);
+			He[ip].v[2]=vz;
+			*/
 
 			printf("Coordenada inicial radial r=%f\n", He[ip].r[0]);
 			printf("E (keV): %f", He[ip].E_keV);
@@ -768,17 +816,14 @@ int main(){
 			else{
 			He[ip].sense = -1;}
 			
-			if(s_flux<0){		  
-			He[ip].state = 0;}
-			else{
-			He[ip].state = -1;}
+			He[ip].state = -1;  // indeterminado
 			
 			He[ip].time = 0.0;
 
 			// Inelastic col:
 			#ifdef Z_1			
 				He[ip].n = 1;				// quantum number, fundamental state s1
-				He[ip].timeAt = 0;      //(IN SEC.) time for atomic de-excitation
+				He[ip].timeAt = 0;         //(IN SEC.) time for atomic de-excitation
 			#endif
 
 			int R_size = hNstep/m_steps;
@@ -823,6 +868,7 @@ int main(){
 				printf("Error File_orbit");
 			exit(1);}  
 			
+			printf("E_final (keV): %f\n", He[ip].E_keV);
 			for(int t_=0;t_<(R_size);t_++){
 				fprintf(File_orbit,"%f \t %f \t %f \n",R[t_].r[0], R[t_].r[1], R[t_].r[2]);
 			}
@@ -882,6 +928,7 @@ int main(){
 	fclose(File_FC);
 	fclose(File_St);
 	fclose(File_Orbit_types);
-	
+	fclose(File_Ion);
+
 	return 0;
 }  /* end main */

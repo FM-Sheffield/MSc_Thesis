@@ -538,7 +538,7 @@ int main(){
 	/***** CUDA ******/
 	struct Part *d_He;
 	HANDLE_ERROR(cudaMalloc( (void**) &d_He, Npart*sizeof(Part) ));
-    HANDLE_ERROR( cudaMemcpy( d_He, &He, Npart*sizeof(Part), cudaMemcpyHostToDevice ));
+    HANDLE_ERROR(cudaMemcpy( d_He, &He, Npart*sizeof(Part), cudaMemcpyHostToDevice ));
 	checkCUDAError("Particle copy: failed \n");
 	
 	/* //Control Trayectoria: --------------------------------- */
@@ -592,7 +592,7 @@ int main(){
 	HANDLE_ERROR(cudaMemcpy(&He, d_He, Npart*sizeof(Part), cudaMemcpyDeviceToHost));
 	checkCUDAError("copy to CPU: failed \n");
 
-	HANDLE_ERROR(	cudaFree(d_He));
+	HANDLE_ERROR(cudaFree(d_He));
 
 	//Control Trayectoria: -------------------------------------
 	//	HANDLE_ERROR(	cudaMemcpy( &R, d_R, 1000*sizeof(Position), cudaMemcpyDeviceToHost ));

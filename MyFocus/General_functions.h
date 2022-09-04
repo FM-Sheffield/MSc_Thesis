@@ -17,7 +17,7 @@ long init=2147483647; // Primo. nro de Mersenne.
 //void Init_r(double *r);
 
 void Init_rv(double *xx,double *yy, double *zz, double *vx,double *vy,double *vz,double *tiempo,int npart);
-
+void Init_Neutral_Beam(struct Part *He, double pos[3], double vel[3], double Energy_MeV);
 
 
 // Boris algorithm:
@@ -31,6 +31,8 @@ void Init_rv(double *xx,double *yy, double *zz, double *vx,double *vy,double *vz
 
 //const double Dt = 0.16;
 //double dEp_MeV = 0.08;
+__host__ __device__ double Proyection(double r,double z, double vr,double vt,double vz,double *s_flux);
+
 __device__ void RK46_NL(struct Part *He,double y);
 __device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time);
 __host__ void H_RK46_NL(struct Part *He,double y);
@@ -43,19 +45,23 @@ __host__ __device__ void centro_giro(struct Part *He, double *rg, double y);
 /* **********plasma profiles ***************/
 
 __device__ double n_ei(double r, double th, double z){     // Density profile, note that n_ei = ne = ni and n_tot = 2n_ei
-	double n = 1;  // density profile in units of 10E20 m^{-3}
+	double n = 1;  // density profile in units of 10E20 m^{-3}  (10^14cm^-3)
 	//printf("\nEntró a n_ei\n");
 	//printf("n_ei=%f\n", n);
 	return n; 
 }
 __device__ double f_ei(double r); 		// electrones e iones
 __device__ double Te(double r, double th, double z){	   // Temperature profile in keV, note that T_tot = 2Te with Te = Ti
-
+	double T_min_keV = 0.05; // We set 0.05 keV as the min temperature in order to avoid numerical issues 
 	double psi = Psi_analitico(r, z);
-	//printf("psi=%f\n", psi);
-	double p_adim = -S1 * psi * exp(M * M * r * r);
-	double T_keV = 24.8341698*p_adim*hB_0*hB_0/(n_ei(r, th, z));
-	return T_keV;  	
+	if (psi > 0){
+		//printf("psi=%f\n", psi);
+		double p_adim = -S1 * psi * exp(M * M * r * r);
+		double T_keV = 24.8341698*p_adim*hB_0*hB_0/(n_ei(r, th, z));  // temperature in KeV
+		return T_keV+T_min_keV;; 
+	} else {
+		return T_min_keV;
+	}
 }
 
 
@@ -65,6 +71,10 @@ __device__ double f_n(double r); 		// neutros
 double ran2(long *idum);			// Num. recipes
 __host__ __device__ void Ran_gauss(double *RG, double sigma);
 void CrossProduct(double v_A[3], double v_B[3], double c_P[3]);
+
+
+
+
 
 /*
 void  campo_mag(double *B, double r, double qq, double zc){
@@ -161,6 +171,80 @@ void  campo_mag(double *B, double r, double qq, double zc){
  ********* CODIGO DE FUNCIONES ****************
  ******************************************** */
 
+
+// Inicializaciones 
+
+void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_sd, double Energy_MeV){
+	// Inicializa un haz de Deuterio neutro inyecado desde pos
+	double s_flux;
+
+	for (unsigned int i = 0; i < Npart; i++){
+		He[i].E_keV = Energy_MeV*1000.0;
+		He[i].Z = (int)hZp;  // variable global
+		He[i].q = 0;  // haz neutro
+
+		double r = R+a;  // radio exterior del toroide (R_out)
+		double z = z_mean;
+		double theta = theta_mean;
+
+		double Ran[2]; // [ran_theta, ran_z]
+		
+
+		// Spatial distribution
+		/*do {
+			Ran[0] = ran2(&init);
+			Ran[1] = ran2(&init);
+			Ran_gauss(&Ran[0], 1);  
+
+			// Reescale to the characteristic sizes:
+			Ran[0] = Ran[0]*theta_sd;
+			Ran[1] = Ran[1]*z_sd;
+
+		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-4*z_sd || Ran[1]>4*z_sd);*/
+		Ran[0]=0.01; Ran[1]=-0.1;
+		
+		// Initial pos
+		He[i].r[0]= r;
+		He[i].r[1]= theta + Ran[0];
+		He[i].r[2]= z + Ran[1];
+		// printf("z=%f\ttheta=%f\t", He[i].r[2], He[i].r[1]);
+		// redefino r y z:
+		r = He[i].r[0];
+		z = He[i].r[2];
+
+		
+		// Velocities, tilt angle refers to the one in the X-Y plane
+		double vx = -r/sqrt(r*r+z*z)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
+		double vy = -r/sqrt(r*r+z*z)*0.8;
+		double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
+		printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
+
+		// Initial velocity:
+		He[i].v[0]=vx*cos(He[i].r[1]) + vy*sin(He[i].r[1]);
+		He[i].v[1]=-vx*sin(He[i].r[1]) + vy*cos(He[i].r[1]);
+		He[i].v[2]=vz;
+
+		// v_paralela y flujo 
+		He[i].pitch = Proyection(He[i].r[0],He[i].r[2],He[i].v[0],He[i].v[1],He[i].v[2],&s_flux);
+		He[i].flux = s_flux;
+		He[i].flag = 0;
+
+		if(He[i].pitch>0)
+		  He[i].sense =1;
+		else
+		  He[i].sense =-1;
+		
+		He[i].state = -1;  // indeterminado
+
+		He[i].time = 0.0;
+
+		// Inelastic col:
+		#ifdef Z_1			
+			He[i].n = 1;				// quantum number, fundamental state s1
+			He[i].timeAt = 0;      //(IN SEC.) time for atomic de-excitation
+		#endif
+	}
+}
 
 void Init_CI_costado(double *r,double *theta, double *z, double *vr,double *vtheta,double *vz, double pitch_deg, unsigned int IC_gridsize, double triangularity){
 	// Inicializa IC_gridsize**2 partículas a un costado de la sección transversal con un dado pitch
@@ -260,7 +344,6 @@ void Init_rv(double *rr,double *rq, double *rz, double *vr,double *vq,double *vz
 
   fclose(archi);
 }
-
 
  
  /* ****** Coordenadas cilindricas ************ */
@@ -491,6 +574,37 @@ void Init_gc(struct Part *He, double y){
 }
 */
 
+//da la proyección (v_paralela) y actualiza el valor del flujo. Es un poco confuso. (previamente la función estaba en el archivo principal)
+__host__ __device__ double Proyection(double r,double z, double vr,double vt,double vz,double *s_flux){
+	//variables para las velocidades
+	double v[3]={0.0};
+	double psi;
+	//Variables para los campos para no calcular repetidamente
+	double B_equilibrio[3], modB=0.0;	
+	//variables auxiliares
+	double proyection=0.0;
+	double qq,time,y;
+	//empiezo el calculo de las velocidades
+	// B_Asdex(r,z, &B_equilibrio[0], &psi);		 
+	// B_Asdex(B, E,r, qq, z,time,y);
+	B_Analitico(r,z, &B_equilibrio[0], &psi);  // actualiza el valor de B y s_flux con el eq. analitico
+	*s_flux=psi;
+
+	double	Br=B_equilibrio[0];
+	double	Bt=B_equilibrio[1];				
+	double	Bz=B_equilibrio[2];				
+		
+		modB=sqrt( Br*Br + Bt*Bt + Bz*Bz );
+		//versor paralelo a B
+		v[0]=Br/modB;
+		v[1]=Bt/modB;
+		v[2]=Bz/modB;
+
+		proyection = vr*v[0] + vt*v[1] + vz*v[2];
+		//printf("proyection= %e\n", proyection);
+		return proyection;				
+}
+
 //__device__ void RK46_NL(struct Part *He,double y,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
 
 __device__ void RK46_NL(struct Part *He,double y){
@@ -548,6 +662,14 @@ __device__ void RK46_NL(struct Part *He,double y){
   (*He).E_keV = (u[0]*u[0] + u[1]*u[1] + u[2]*u[2])*dEp_MeV*1000.0;
     (*He).time = (*He).time + Dt;
   //(*He).time =tw;
+
+    #ifdef Z_1  // No lo entiendo bien, pero está en lo de Cesar
+		if ((*He).q==0) {
+		(*He).timeAt = (*He).timeAt + Dt*ta;
+		}
+		// ta tiempo de ciclotrón
+		// Así como está luego de ionizarse timeAt no cambia luego de ionizar
+	#endif
 
   return;
 
@@ -640,11 +762,13 @@ __host__ void H_RK46_NL(struct Part *He, double y){
     (*He).time = (*He).time + hDt;
   //(*He).time =tw;
 
-  return;
+    
 
+  return;
 	//free(pF);
 	//pF = NULL;
 }
+
 //__device__ void RHS_cil(double *FF, double *u, double y, double q_Z, double time,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
 	// Right hand side del RK
 __host__ void H_RHS_cil(double *FF, double *u, double y, double q_Z, double time){
