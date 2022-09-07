@@ -45,7 +45,7 @@ __host__ __device__ void centro_giro(struct Part *He, double *rg, double y);
 /* **********plasma profiles ***************/
 
 __device__ double n_ei(double r, double th, double z){     // Density profile, note that n_ei = ne = ni and n_tot = 2n_ei
-	double n = 1;  // density profile in units of 10E20 m^{-3}  (10^14cm^-3)
+	double n = 0.5;  // density profile in units of 10E20 m^{-3}  (10^14cm^-3)
 	//printf("\nEntró a n_ei\n");
 	//printf("n_ei=%f\n", n);
 	return n; 
@@ -183,7 +183,7 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		He[i].Z = (int)hZp;  // variable global
 		He[i].q = 0;  // haz neutro
 
-		double r = R+a;  // radio exterior del toroide (R_out)
+		double r = 0.965*(R+a);  // radio exterior del toroide (R_out)
 		double z = z_mean;
 		double theta = theta_mean;
 
@@ -191,7 +191,7 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		
 
 		// Spatial distribution
-		/*do {
+		do {
 			Ran[0] = ran2(&init);
 			Ran[1] = ran2(&init);
 			Ran_gauss(&Ran[0], 1);  
@@ -200,8 +200,8 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 			Ran[0] = Ran[0]*theta_sd;
 			Ran[1] = Ran[1]*z_sd;
 
-		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-4*z_sd || Ran[1]>4*z_sd);*/
-		Ran[0]=0.01; Ran[1]=0.0;
+		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-4*z_sd || Ran[1]>4*z_sd);
+		//Ran[0]=0.01; Ran[1]=0.0;
 		
 		// Initial pos
 		He[i].r[0]= r;
@@ -218,7 +218,7 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		double vx = -r/sqrt(r*r+z*z)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
 		double vy = r/sqrt(r*r+z*z)*0.8;
 		double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
-		printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
+		// printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
 
 		// Initial velocity:
 		He[i].v[0]=vx*cos(He[i].r[1]) + vy*sin(He[i].r[1]);

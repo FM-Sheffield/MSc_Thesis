@@ -36,8 +36,8 @@ const double R   = 1;				// Radio mayor del Toroide (previously R_cm)
 const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
-const int    Npart  = 1024;	           // Numero de partículas
-const int    hNstep = 20000;				// Limite paso temporales.
+const int    Npart  = 20000;	           // Numero de partículas
+const int    hNstep = 30000;				// Limite paso temporales.
 const int m_steps = 1; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
@@ -50,9 +50,9 @@ const double hmp_au = 1836.2;				// proton mass (in a.u.)
 
 // For Init_Neutral_Beam() initiallization
 const double theta_beam = -0.476;  // radians
-const double theta_beam_sd = 0.165/3;  // ~3.2°
+const double theta_beam_sd = 0.165/6;  // ~9.45°/6
 const double z_beam = 0;
-const double z_beam_sd = 0.2*R/3;   // elijo tal que 3*sigma = 0.2R
+const double z_beam_sd = 0.2*R/1.1;   // elijo tal que 1.1*sigma = 0.2R  (lo ajusto a ojo basado en la data de DIIID de Cesar)
 
 // DEVICE ************************
 __device__ double dEp_MeV = Ep_MeV;
@@ -711,7 +711,7 @@ int main(){
 	
 	bool only_oneP = true;
 	for(ip=0;ip<Npart;ip++){
-		
+		// printf("Final timeAt: %f \n", He[ip].timeAt);
 		// Si no todas las particulas se ionizaron pueden haber problemas por no estar bien alojada la mem de ionization_data
 		fprintf(File_Ion," %f \t %f \t %f \t %f \t %f\n", He[ip].Ionization_data[0], He[ip].Ionization_data[1], He[ip].Ionization_data[2],
 		He[ip].Ionization_data[3], He[ip].Ionization_data[4]);
@@ -731,18 +731,17 @@ int main(){
 
 			double Ran[2]; // [ran_theta, ran_z]
 			// Spatial distribution
-			/*
-			while (Ran[0]<-4*theta_beam_sd || Ran[0]>4*theta_beam_sd || Ran[1]<-4*z_beam_sd || Ran[1]>4*z_beam_sd){
+			do {
 				Ran[0] = ran2(&init);
 				Ran[1] = ran2(&init);
-				Ran_gauss(&Ran[0], 1);
+				Ran_gauss(&Ran[0], 1);  
 
 				// Reescale to the characteristic sizes:
 				Ran[0] = Ran[0]*theta_beam_sd;
 				Ran[1] = Ran[1]*z_beam_sd;
 
-			}
-			*/Ran[0]=0.01; Ran[1]=0.0;
+			} while (Ran[0]<-4*theta_beam_sd || Ran[0]>4*theta_beam_sd || Ran[1]<-4*z_beam_sd || Ran[1]>4*z_beam_sd);
+			//Ran[0]=0.01; Ran[1]=0.0;
 
 			// FALTA CAMBIAR ESTO PARA LAS VELOCIDADES
 			// Initial pos
