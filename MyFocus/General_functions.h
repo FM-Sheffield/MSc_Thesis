@@ -17,7 +17,7 @@ long init=2147483647; // Primo. nro de Mersenne.
 //void Init_r(double *r);
 
 void Init_rv(double *xx,double *yy, double *zz, double *vx,double *vy,double *vz,double *tiempo,int npart);
-void Init_Neutral_Beam(struct Part *He, double pos[3], double vel[3], double Energy_MeV);
+void Init_Neutral_Beam(struct Part *He, double pos[3], double vel[3], double Energy_MeV, double tilt_angle);
 
 
 // Boris algorithm:
@@ -174,7 +174,7 @@ void  campo_mag(double *B, double r, double qq, double zc){
 
 // Inicializaciones 
 
-void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_sd, double Energy_MeV){
+void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_sd, double Energy_MeV, double tilt_angle){
 	// Inicializa un haz de Deuterio neutro inyecado desde pos
 	double s_flux;  // dummy flux variable
 
@@ -215,8 +215,8 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		
 		// Velocities, tilt angle refers to the one in the X-Y plane
 		// 0.6 and 0.8 to model the DIII-D data
-		double vx = -r/sqrt(r*r+z*z)*0.6;  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
-		double vy = r/sqrt(r*r+z*z)*0.8;
+		double vx = r/sqrt(r*r+z*z)*cos(tilt_angle);  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
+		double vy = r/sqrt(r*r+z*z)*sin(tilt_angle);
 		double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
 		// printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
 

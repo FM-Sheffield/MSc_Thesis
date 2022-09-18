@@ -103,9 +103,20 @@ const double M = 0.01;
 //const double C8 = -0.03619877453; const double S1 = -0.5395195344810759; const double S2 = -0.004129137273799056;
 
 //Positive T_2 - DIIID - test cand 4 (A = 0.568, V = 3.405):
-const double C1 = 0.001812141542; const double C2 = 0.4717347435; const double C3 = 0.5313153095; const double C4 = 0.4407871704; 
-const double C5 = 0.4130720551; const double C6 = 0.02982725318; const double C7 = -0.04191041218; const double C8 = 0.0214024026;
-const double S1 = -0.6244922921; const double S2 = -0.02969385881;
+//const double C1 = 0.001812141542; const double C2 = 0.4717347435; const double C3 = 0.5313153095; const double C4 = 0.4407871704; 
+//const double C5 = 0.4130720551; const double C6 = 0.02982725318; const double C7 = -0.04191041218; const double C8 = 0.0214024026;
+//const double S1 = -0.6244922921; const double S2 = -0.02969385881;
+
+//Negative T - DIIID - cand 5 (B=2T, A = 0.5675, V = 3.7152):
+//const double S1 = -0.4995410553; const double S2 = 0.09395498849;    
+//const double C1 = -0.01154271581; const double C2 = 0.2125359453; const double C3 = 0.5489561266; const double C4 = 0.1482830648; 
+//const double C5 = 0.2636284353; const double C6 = 0.01753591288; const double C7 = -0.05560087368; const double C8 = -0.03804031965;
+
+//Positive T - DIIID - cand 5 (B=2T, A = 0.5676, V = 3.4043):
+const double S1 = -0.5831152318; const double S2 = 0.05676267719;    
+const double C1 = -0.002190157406; const double C2 = 0.5580341791; const double C3 = 0.6618636006; const double C4 = 0.4918686431; 
+const double C5 = 0.5099540459; const double C6 = 0.02875339697; const double C7 = -0.05279197327; const double C8 = 0.02561018266;
+
 
 // Calcula el flujo poloidal analitico en r, z
 __host__ __device__ double Psi_analitico(double R, double Z) {

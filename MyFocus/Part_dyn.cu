@@ -23,7 +23,7 @@ Facundo Sheffield - 2022
 // Plasma and reactor parameters  (normalized, DIIID)
 // HOST ******************
 
-const double hB_0   = 2.2;				// Campo Magnetico Toroidal en el eje (Tesla)
+const double hB_0   = 2.0;				// Campo Magnetico Toroidal en el eje (Tesla)
 const double a   = 0.67 / 1.67;			// Radio menor del Toroide (previously a_cm)
 
 // const double pitch_deg = 60; 			// Pitch en grados, para Init_CI_costado
@@ -47,12 +47,14 @@ const double hta    = 1.0439E-8*hmu/(hZp*hB_0);		// sec. (Campo en Teslas) (ITER
 const double hc_cgs = 2.9979E10;			// speed of light
 const double ha0_cgs = 5.2918E-9;			// Bohr radius
 const double hmp_au = 1836.2;				// proton mass (in a.u.)
+const double Pi = 3.1415926535897932385;	// Pi
 
 // For Init_Neutral_Beam() initiallization
-const double theta_beam = -0.476;  // radians
-const double theta_beam_sd = 0.165/6;  // ~9.45°/6
+const double theta_beam = -0.406;  // radians
+const double theta_beam_sd = 0.17/6;  // ~9.8°/6
 const double z_beam = 0;
-const double z_beam_sd = 0.2*R/1.1;   // elijo tal que 1.1*sigma = 0.2R  (lo ajusto a ojo basado en la data de DIIID de Cesar)
+const double z_beam_sd = 0.2*R/1.1;   // elijo tal que 1.05*sigma = 0.2R  (lo ajusto a ojo basado en la data de DIIID de Cesar)
+const double tilt_ang = 126*Pi/180.0;  // beam angle in the X-Y plane (rad)
 
 // DEVICE ************************
 __device__ double dEp_MeV = Ep_MeV;
@@ -130,7 +132,8 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 	double t0 = 0.0;
 	double vpar, vpar_t;
 	double B[3], E[3];
-	y = sqrt(10*Ep_MeV) * 0.01758437;  // gamma DIIID, 0.0175 es para 100 keV
+	// y = sqrt(10*Ep_MeV) * 0.01758437;  // gamma DIIID, 0.0175 es para 100 keV @ 2.2T
+	y = sqrt(10*Ep_MeV) * 0.019342807;  // gamma DIIID, 0.0193 es para 100 keV @ 2T
 	double initial_proyection=0.0,proyection=0.0;
 	//Control Trayectoria: ------- 
 	int j = 0;
@@ -354,7 +357,8 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 	double t0 = 0.0;
 	double vpar, vpar_t;
 	double B[3], E[3];
-	y = sqrt(10*Ep_MeV) * 0.01758437;  // gamma DIIID, 0.0175 es para 100 keV
+	//y = sqrt(10*Ep_MeV) * 0.01758437;  // gamma DIIID, 0.0175 es para 100 keV
+	y = sqrt(10*Ep_MeV) * 0.019342807;  // gamma DIIID, 0.0193 es para 100 keV @ 2T
 	double initial_proyection=0.0,proyection=0.0;
 	//Control Trayectoria: ------- 
 	int j = 0;
@@ -620,7 +624,7 @@ int main(){
 	//Init_rv(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0],&tiempo,Npart);
 	//Init_CI_costado(&xx[0],&yy[0],&zz[0],&vx[0],&vy[0],&vz[0], pitch_deg, gridsize, delta);
 
-	Init_Neutral_Beam(He, theta_beam, theta_beam_sd, z_beam, z_beam_sd, Ep_MeV);
+	Init_Neutral_Beam(He, theta_beam, theta_beam_sd, z_beam, z_beam_sd, Ep_MeV, tilt_ang);
 
 	// Save initial conditions
 	fprintf(File_IC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - vparalela - sentido\n");
@@ -630,12 +634,14 @@ int main(){
 	}
 
 
-	double hgamma = sqrt(10 * Ep_MeV) * 0.01758437;
+	//double hgamma = sqrt(10 * Ep_MeV) * 0.01758437;
+	double hgamma = sqrt(10*Ep_MeV) * 0.019342807;  // B=2T
+
 	printf("E in: %.14f keV \n", He[0].E_keV);
 	// printf("x in: %.14f \n", x);
 	
 	/* ***** Output Statistical ****** */
-	fprintf(File_St, "gamma: \t %f \n", sqrt(10*Ep_MeV) * 0.01758437);
+	fprintf(File_St, "gamma: \t %f \n", sqrt(10*Ep_MeV) * 0.019342807);
 	fprintf(File_St,"Initial \n");
 	fprintf(File_St, "Dt: \t %f \n", hDt);
 	fprintf(File_St, "Nstep: \t %d \n", hNstep);
@@ -673,6 +679,7 @@ int main(){
                 cudaGetDeviceProperties(&deviceProp,dev);
                 printf("\nPlaca %d: %s \n", dev, deviceProp.name);
 	int numthreads = 32;  // 32, se puede probar con otras potencias de 2 para optimizar
+	// two threads from different blocks cannot cooperate
 	int numblocks = (Npart+numthreads-1)/numthreads;  // recordar que hay límite máximo de bloques
 	dim3 block_size(numthreads);
   	dim3 grid_size(numblocks);
@@ -716,7 +723,7 @@ int main(){
 		fprintf(File_Ion," %f \t %f \t %f \t %f \t %f\n", He[ip].Ionization_data[0], He[ip].Ionization_data[1], He[ip].Ionization_data[2],
 		He[ip].Ionization_data[3], He[ip].Ionization_data[4]);
 
-		if (only_oneP){  // This should probably be its own function
+		if (only_oneP && He[ip].state==0){  // This should probably be its own function
 			only_oneP = false;
 			printf("Particle state: %d", He[ip].state);
 			printf("\nFlag Particle, ip=%d\n", ip);
