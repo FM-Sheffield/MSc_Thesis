@@ -118,6 +118,12 @@ const double C1 = -0.002190157406; const double C2 = 0.5580341791; const double 
 const double C5 = 0.5099540459; const double C6 = 0.02875339697; const double C7 = -0.05279197327; const double C8 = 0.02561018266;
 
 
+//Negative T - DIIID - cand 5 - (I=-0.9 MA, B=2T, A = ?, V = ?):
+//const double S1 = -0.1829396643; const double S2 = -1.098501102;    
+//const double C1 = 0.05060672635; const double C2 =-1.378122915; const double C3 = -1.982343049; const double C4 = -0.9064727765; 
+//const double C5 = -1.481674148; const double C6 = -0.002902330147; const double C7 = 0.1638990905; const double C8 = -0.06629658599;
+
+
 // Calcula el flujo poloidal analitico en r, z
 __host__ __device__ double Psi_analitico(double R, double Z) {
     double psi2 = R * R;
@@ -130,7 +136,8 @@ __host__ __device__ double Psi_analitico(double R, double Z) {
     double f1 = -(1 + M * M * R * R - exp(M * M * R * R)) * S1 / (4 * pow(M, 4));
     double f2 = -S2 * Z * Z / 2.0;
 
-    return C1 + C2 * psi2 + C3 * psi3 + C4 * psi4 + C5 * psi5 + C6 * psi6 + C7 * psi7 + C8 * psi8 + f1 + f2;
+    return (C1 + C2 * psi2 + C3 * psi3 + C4 * psi4 + C5 * psi5 + C6 * psi6 + C7 * psi7 + C8 * psi8 + f1 + f2);
+    // multiply by -1 if current is negative
 }
 
 
@@ -144,7 +151,7 @@ __host__ __device__ void B_Analitico(double R,double Z,double *B,double *s_flux)
         + C6 * (3 * pow(R, 5) / 4 - 6 * pow(R, 3) * pow(Z, 2) + 2 * R * pow(Z, 4)) + C7 * (15 * (9 * pow(R, 5) - 48 * pow(R, 3) * Z * Z - 2 * (3 * pow(R, 5) - 24 * pow(R, 3) * Z * Z + 8 * R * pow(Z, 4)) * log(R)) / 8)
         + C8 * (2 * R * pow(Z, 6) - 15 * pow(R, 3) * pow(Z, 4) + 45 * pow(R, 5) * Z * Z / 4 - 5 * pow(R, 7) / 8) - S1 * R * (1 - exp(M * M * R * R)) / (2 * M * M)) / R;
 	B[0]=Br;
-	B[1]=Bt;
+	B[1]=Bt;  // it is defined positive above, but can be negative (+-\sqrt())
 	B[2]=Bz;
 	*s_flux= Psi_analitico(R, Z);
 }

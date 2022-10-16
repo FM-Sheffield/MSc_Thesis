@@ -174,7 +174,7 @@ void  campo_mag(double *B, double r, double qq, double zc){
 
 // Inicializaciones 
 
-void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_sd, double Energy_MeV, double tilt_angle){
+void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, double z_mean, double z_ang, double Energy_MeV, double tilt_angle){
 	// Inicializa un haz de Deuterio neutro inyecado desde pos
 	double s_flux;  // dummy flux variable
 
@@ -183,13 +183,13 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		He[i].Z = (int)hZp;  // variable global
 		He[i].q = 0;  // haz neutro
 
-		double r = 0.965*(R+a);  // radio exterior del toroide (R_out)
+		double r = 0.99*(R+a);  // radio exterior del toroide (R_out)
+		double r_inj = 1.5*(R+a);  // distance from injector to the origin
 		double z = z_mean;
 		double theta = theta_mean;
 
-		double Ran[2]; // [ran_theta, ran_z]
+		double Ran[2]; // [ran_theta, ran_z_ang]
 		
-
 		// Spatial distribution
 		do {
 			Ran[0] = ran2(&init);
@@ -198,15 +198,15 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 
 			// Reescale to the characteristic sizes:
 			Ran[0] = Ran[0]*theta_sd;
-			Ran[1] = Ran[1]*z_sd;
+			Ran[1] = Ran[1]*z_ang;
 
-		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-4*z_sd || Ran[1]>4*z_sd);
-		//Ran[0]=0.01; Ran[1]=0.0;
+		} while (Ran[0]<-4*theta_sd || Ran[0]>4*theta_sd || Ran[1]<-3*z_ang || Ran[1]>3*z_ang);
+		double alpha_ = Ran[1]/2;
 		
 		// Initial pos
 		He[i].r[0]= r;
 		He[i].r[1]= theta + Ran[0];
-		He[i].r[2]= z + Ran[1];
+		He[i].r[2]= z + (r_inj-r)*tan(alpha_);
 		// printf("z=%f\ttheta=%f\t", He[i].r[2], He[i].r[1]);
 		// redefino r y z:
 		r = He[i].r[0];
@@ -214,10 +214,9 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 
 		
 		// Velocities, tilt angle refers to the one in the X-Y plane
-		// 0.6 and 0.8 to model the DIII-D data
-		double vx = r/sqrt(r*r+z*z)*cos(tilt_angle);  // -Vmod*sin(ang(z, r))*cos(tilt_angle)
-		double vy = r/sqrt(r*r+z*z)*sin(tilt_angle);
-		double vz = -z/sqrt(r*r+z*z);  //-Vmod * cos(ang(z, r))
+		double vx = cos(alpha_)*cos(tilt_angle);  // -Vmod*cos(ang(z, r))*cos(tilt_angle)
+		double vy = cos(alpha_)*sin(tilt_angle);
+		double vz = sin(alpha_);  //Vmod * sin(ang(z, r))
 		// printf("z=%f\tvz=%fvx=%f\tvy=%f\ttheta=%f\tr=%f\n", z, vz, vx, vy, theta, r);
 
 		// Initial velocity:
