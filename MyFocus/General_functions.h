@@ -234,7 +234,7 @@ void Init_Neutral_Beam(struct Part *He, double theta_mean, double theta_sd, doub
 		else
 		  He[i].sense =-1;
 		
-		He[i].state = -1;  // no determinado
+		He[i].state = -2;  // neutra
 
 		He[i].time = 0.0;
 

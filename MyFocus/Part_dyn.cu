@@ -11,6 +11,7 @@ Facundo Sheffield - 2022
 #include <cuda.h>
 #include "Random123/philox.h"  // random numbers in GPU
 #include "Random123/u01.h"  // to get uniform deviates [0,1]
+//#include "Random123/u01fixedpt.h"    // to get uniform deviates [0,1] (w/cuda8)
 
 
 #include "curso.h"
@@ -37,7 +38,7 @@ const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
 const int    Npart  = 100000;  //            // Numero de partículas
-const int    hNstep = 24000000;				// Limite paso temporales. 24000000 @ dt=0.16->40ms
+const int    hNstep = 48600000;				// Limite paso temporales. 24000000 @ dt=0.16~>40ms (1ms = 600000 steps)
 const int m_steps = 1; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
@@ -87,7 +88,7 @@ __device__ double mp_au = hmp_au;
 	double r[3];			// posición. Coord. cilindricas (r, theta, z). (Adimensional)
 	double v[3];			// velocidad. Coord. cilindricas. (Adimensional)
 	double time;			// time of particle evolution.
-	int state;				// -1 = sin determinar; 0 = escapada; 1 = banana; 2 = clockwise; 3 = anticlockwise; 4 = outlier
+	int state;				// -2 = neutra; -1 = sin determinar; 0 = escapada; 1 = banana; 2 = clockwise; 3 = anticlockwise; 4 = outlier
 	int sense;				// sense of rotation
     double pitch;  			// Vparalela al campo (V_par/V=cos(pitch))
     double flux;
@@ -96,7 +97,7 @@ __device__ double mp_au = hmp_au;
 	//double Ionization_data[5];  // saves certain data at ionization. In order, [r, theta, z, v_pll/v, E_kev] 
 	double Escaped_data[5];    // saves data (r, th, z, E_kev, time) of a particle when it escapes
 
-	//double Diagnosis_data[10][10];  // saves certain data of particles for further diagnosis at different times. 
+	double Diagnosis_data[10][10];  // saves certain data of particles for further diagnosis at different times. 
 							     // In order, Time_it*[r, theta, z, vr, vth, vz, pitch, E_kev, state, time]
 
 	#ifdef Z_1			
@@ -123,6 +124,8 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 	//Evolución temporal "normal", asigna los tipos de órbitas en d_He.state
 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	int diag_time[9] = {500, 5400000, 2*5400000, 3*5400000, 4*5400000, 5*5400000, 6*5400000, 7*5400000, 8*5400000}; // times (iterations) at which to save data for diagnosis (except the last one)
 	
 	int Nec=80000;		// steps for elastic collisions - 80k is okay for E=80keV
 	int next_col=Nec;	// total steps for next collision
@@ -172,7 +175,8 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 
 	if(id < Npart) {
 		n = 0; 		
-		
+		int diag_it = 0; // current diagnosis iteration
+
 		// ya están en las condiciones iniciales	
 		//initial_proyection = Proyection(d_He[id].r[0],d_He[id].r[2],d_He[id].v[0],d_He[id].v[1],d_He[id].v[2],&s_flux);
 		//d_He[id].flux=s_flux;
@@ -186,6 +190,23 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 
 
 		do{ 
+			
+			// Note: diag_it could land out of bounds. Be careful with that.
+			if (n==diag_time[diag_it]) {
+				d_He[id].Diagnosis_data[diag_it][0] = d_He[id].r[0];
+				d_He[id].Diagnosis_data[diag_it][1] = d_He[id].r[1];
+				d_He[id].Diagnosis_data[diag_it][2] = d_He[id].r[2];
+				d_He[id].Diagnosis_data[diag_it][3] = d_He[id].v[0];
+				d_He[id].Diagnosis_data[diag_it][4] = d_He[id].v[1];
+				d_He[id].Diagnosis_data[diag_it][5] = d_He[id].v[2];
+				d_He[id].Diagnosis_data[diag_it][6] = d_He[id].pitch;
+				d_He[id].Diagnosis_data[diag_it][7] = d_He[id].E_keV;
+				d_He[id].Diagnosis_data[diag_it][8] = d_He[id].state;
+				d_He[id].Diagnosis_data[diag_it][9] = d_He[id].time;
+
+				diag_it++;
+			}
+
 
 			RK46_NL(d_He+id, y);
 			//Boris_c(d_He+id, y);
@@ -212,6 +233,9 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 			
 			if(n%Nic == 0 && d_He[id].q == 0 && s_flux > 0){  
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
+				if (d_He[id].q != 0){ 
+					d_He[id].state = -1; // ionized
+				}
 				/*
 				// saves data at ionization
 				// NOTA: En realidad así cómo está el pitch está un paso atrás, asumo que no afecta significativamente
@@ -340,6 +364,18 @@ __global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 			printf("ERROR: E_keV = %f\n", d_He[id].E_keV);
 			d_He[id].state = 4;  // Outlier, energía cinética negativa o NaN
 		}
+
+		// Save final data
+		d_He[id].Diagnosis_data[9][0] = d_He[id].r[0];
+		d_He[id].Diagnosis_data[9][1] = d_He[id].r[1];
+		d_He[id].Diagnosis_data[9][2] = d_He[id].r[2];
+		d_He[id].Diagnosis_data[9][3] = d_He[id].v[0];
+		d_He[id].Diagnosis_data[9][4] = d_He[id].v[1];
+		d_He[id].Diagnosis_data[9][5] = d_He[id].v[2];
+		d_He[id].Diagnosis_data[9][6] = d_He[id].pitch;
+		d_He[id].Diagnosis_data[9][7] = d_He[id].E_keV;
+		d_He[id].Diagnosis_data[9][8] = d_He[id].state;
+		d_He[id].Diagnosis_data[9][9] = d_He[id].time;
 	}
 }
 
@@ -470,7 +506,9 @@ __global__ void SingleEvol ( struct Part * d_He,  long init, int ip, struct Posi
 
 			if(n%Nic == 0 && d_He[id].q == 0 && s_flux > 0){  // preguntar césar
 				Inelastic_collisions(d_He+id,(double)Dt*Nic*ta, &i, (int)init, id);
-
+				if (d_He[id].q != 0){ 
+					d_He[id].state = -1; // ionized
+				}
 				//printf("carga: %d\t pos_r: %f\n", d_He[id].q, d_He[id].r[0]);
 
 				//if(q1 != d_He[id].q){
@@ -606,10 +644,11 @@ int main(){
 		printf("Error File_IC");
 		exit(1);}
 
-	FILE *File_FC = fopen("time0001.dat","w");  // Final Conditions
+	/*FILE *File_FC = fopen("time0001.dat","w");  // Final Conditions
 	if(File_FC == NULL){
 		printf("Error File_FC");
 		exit(1);}
+	*/
 
 	FILE *File_St = fopen("SR_1MeV0_0x20_He_e_euler_dpos.dat","w");  // stats
 	if(File_St == NULL){
@@ -632,7 +671,13 @@ int main(){
 	if(File_Esc == NULL){
 		printf("Error File_Esc");
 		exit(1);}
-	fprintf(File_Esc,"# Escaped particle coordinates and Energy (KeV).\n# R; theta; z; Energy\n");
+	fprintf(File_Esc,"# Escaped particle coordinates and Energy (KeV).\n# R; theta; z; Energy; time\n");
+
+	FILE *File_Diag = fopen("Diagnostics_dpos.dat","w");  // escaped particle coordinates
+	if(File_Diag == NULL){
+		printf("Error File_Esc");
+		exit(1);}
+	fprintf(File_Diag,"# Several particle properties at 10 different times.\n# Time_it; R; theta; z; vr; vth; vz; pitch; E_kev; state; time\n");
 
 
 	/*********************************************/ 
@@ -736,7 +781,7 @@ int main(){
 	printf("Elapsed time AFTER Memcopy: \t %f sec.\n", elapsed_time);
 
 	// Posiciones finales y estadisticas--------------------
-	fprintf(File_FC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - pitch - sentido\n");
+	//fprintf(File_FC,"Número - tiempo - r - theta - z - Vr - Vtheta - Vz - E (kev) - psi - pitch - sentido\n");
 	//fprintf(File_Orbit_types, "# Particle Trajectories statistics, pitch=%f, delta=%f\n", pitch_deg, delta);
 	fprintf(File_Orbit_types, "# Escapadas\tBananas\tClockwise\tAnticlockwise\tOutliers\n");
 	
@@ -757,7 +802,7 @@ int main(){
 			fprintf(File_Esc," %f \t %f \t %f \t %f \t %f\n", He[ip].Escaped_data[0], He[ip].Escaped_data[1], He[ip].Escaped_data[2], He[ip].Escaped_data[3], He[ip].Escaped_data[4]);
 		}
 
-		if (only_oneP && He[ip].state==0){  // DISCONTINUED -> Should update it 
+		if (only_oneP && He[ip].state==0){  // OBSOLETE -> Should update it 
 			// This should probably be its own function
 			only_oneP = false;
 			printf("Particle state: %d", He[ip].state);
@@ -887,13 +932,13 @@ int main(){
 		r = sqrt( He[ip].r[0]*He[ip].r[0] + He[ip].r[1]*He[ip].r[1]);
 		x = sqrt( (r - hR0)*(r - hR0) + He[ip].r[2]*He[ip].r[2] );
 		//printf("state= %e\n", He[ip].state);
-
+		/*
 		fprintf(File_FC," %d %f \t  %.5e \t %.5e \t %.5e \t%.5e \t %.5e \t %.5e \t %.5e \t %.5e \t %.5e \t %d  \n",
 			//			He[ip].time, rg[0],rg[1],rg[2],
 				ip,He[ip].time,He[ip].r[0], He[ip].r[1], He[ip].r[2],
 				He[ip].v[0], He[ip].v[1], He[ip].v[2], 
 				He[ip].E_keV,He[ip].flux,He[ip].pitch, He[ip].sense);
-
+		*/
 		if(He[ip].flag == 1){
 			reentrantes++;
 		}
@@ -914,6 +959,16 @@ int main(){
 	fprintf(File_Orbit_types, "%d\t%d\t%d\t%d\t%d\n", escapadas, bananas, clockW, anticlockW, Outliers);
 
 
+	// Diagnostics:
+	for (int it_diag = 0; it_diag<10; it_diag++){
+		for(ip=0;ip<Npart;ip++){  
+			fprintf(File_Diag, "%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n", it_diag, He[ip].Diagnosis_data[it_diag][0], 
+				He[ip].Diagnosis_data[it_diag][1], He[ip].Diagnosis_data[it_diag][2], He[ip].Diagnosis_data[it_diag][3], 
+				He[ip].Diagnosis_data[it_diag][4], He[ip].Diagnosis_data[it_diag][5], He[ip].Diagnosis_data[it_diag][6], 
+				He[ip].Diagnosis_data[it_diag][7], He[ip].Diagnosis_data[it_diag][8], He[ip].Diagnosis_data[it_diag][9]);
+		}
+	}
+
 	//---------------------------------------
 
 	gettimeofday(&finish,NULL);
@@ -929,11 +984,14 @@ int main(){
 	printf("Elapsed time: \t %f sec.\n", elapsed_time);
 	
 	fclose(File_IC);
-	fclose(File_FC);
+	//fclose(File_FC);
 	fclose(File_St);
 	fclose(File_Orbit_types);
 	//fclose(File_Ion);
 	fclose(File_Esc);
+	fclose(File_Diag);
+
+	
 	
 
 	return 0;
