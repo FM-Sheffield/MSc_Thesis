@@ -33,7 +33,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define __icpcfeatures_dot_hpp
 
 // icc relies on gcc libraries and other toolchain components.
-#define GNUC_VERSION (__GNUC__*10000 + __GNUC_MINOR__*100 + __GNUC_PATCHLEVEL__)
+#define R123_GNUC_VERSION (__GNUC__*10000 + __GNUC_MINOR__*100 + __GNUC_PATCHLEVEL__)
 
 #if !defined(__x86_64__) && !defined(__i386__)
 #  error "This code has only been tested on x86 platforms."
@@ -119,7 +119,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 // AES-NI Whitepaper by Gueron says that icc has supported AES-NI from
 // 11.1 onwards.
 //
-#define R123_USE_AES_NI ((__ICC>=1101) && defined(__AES__))
+#if defined(__AES__)
+#define R123_USE_AES_NI ((__ICC>=1101) && 1/*defined(__AES__)*/)
+#else
+#define R123_USE_AES_NI ((__ICC>=1101) && 0/*defined(__AES__)*/)
+#endif
 #endif
 
 #ifndef R123_USE_AES_OPENSSL
@@ -149,6 +153,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #ifndef R123_USE_IA32INTRIN_H
 #define R123_USE_IA32INTRIN_H 1
+#endif
+
+#ifndef R123_USE_XMMINTRIN_H
+#define R123_USE_XMMINTRIN_H 0
 #endif
 
 #ifndef R123_USE_EMMINTRIN_H

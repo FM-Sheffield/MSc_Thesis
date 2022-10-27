@@ -155,12 +155,15 @@ enum r123_enum_threefry_wcnt {
     WCNT2=2,
     WCNT4=4
 };
+
+#if R123_USE_64BIT
 R123_CUDA_DEVICE R123_STATIC_INLINE R123_FORCE_INLINE(uint64_t RotL_64(uint64_t x, unsigned int N));
 R123_CUDA_DEVICE R123_STATIC_INLINE uint64_t RotL_64(uint64_t x, unsigned int N)
 {
     return (x << (N & 63)) | (x >> ((64-N) & 63));
 }
-    
+#endif
+
 R123_CUDA_DEVICE R123_STATIC_INLINE R123_FORCE_INLINE(uint32_t RotL_32(uint32_t x, unsigned int N));
 R123_CUDA_DEVICE R123_STATIC_INLINE uint32_t RotL_32(uint32_t x, unsigned int N)
 {
@@ -170,6 +173,8 @@ R123_CUDA_DEVICE R123_STATIC_INLINE uint32_t RotL_32(uint32_t x, unsigned int N)
 #define SKEIN_MK_64(hi32,lo32)  ((lo32) + (((uint64_t) (hi32)) << 32))
 #define SKEIN_KS_PARITY64         SKEIN_MK_64(0x1BD11BDA,0xA9FC1A22)
 #define SKEIN_KS_PARITY32         0x1BD11BDA
+
+/** \endcond */
 
 #ifndef THREEFRY2x32_DEFAULT_ROUNDS
 #define THREEFRY2x32_DEFAULT_ROUNDS 20
@@ -251,34 +256,34 @@ threefry2x##W##_ctr_t threefry2x##W##_R(unsigned int Nrounds, threefry2x##W##_ct
     if(Nrounds>18){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_2_0); X.v[1] ^= X.v[0]; } \
     if(Nrounds>19){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_3_0); X.v[1] ^= X.v[0]; } \
     if(Nrounds>19){                                                     \
-        /* InjectKey(r=4) */                                            \
+        /* InjectKey(r=5) */                                            \
         X.v[0] += ks[2]; X.v[1] += ks[0];                               \
         X.v[1] += 5;                                                    \
     }                                                                   \
-    if(Nrounds>20){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_0_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>21){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_1_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>22){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_2_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>23){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_3_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>20){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_4_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>21){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_5_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>22){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_6_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>23){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_7_0); X.v[1] ^= X.v[0]; } \
     if(Nrounds>23){                                                     \
-        /* InjectKey(r=3) */                                            \
+        /* InjectKey(r=6) */                                            \
         X.v[0] += ks[0]; X.v[1] += ks[1];                               \
         X.v[1] += 6;                                                    \
     }                                                                   \
-    if(Nrounds>24){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_4_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>25){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_5_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>26){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_6_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>27){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_7_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>24){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_0_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>25){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_1_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>26){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_2_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>27){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_3_0); X.v[1] ^= X.v[0]; } \
     if(Nrounds>27){                                                     \
-        /* InjectKey(r=4) */                                            \
+        /* InjectKey(r=7) */                                            \
         X.v[0] += ks[1]; X.v[1] += ks[2];                               \
         X.v[1] += 7;                                                    \
     }                                                                   \
-    if(Nrounds>28){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_0_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>29){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_1_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>30){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_2_0); X.v[1] ^= X.v[0]; } \
-    if(Nrounds>31){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_3_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>28){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_4_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>29){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_5_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>30){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_6_0); X.v[1] ^= X.v[0]; } \
+    if(Nrounds>31){  X.v[0] += X.v[1]; X.v[1] = RotL_##W(X.v[1],R_##W##x2_7_0); X.v[1] ^= X.v[0]; } \
     if(Nrounds>31){                                                     \
-        /* InjectKey(r=4) */                                            \
+        /* InjectKey(r=8) */                                            \
         X.v[0] += ks[2]; X.v[1] += ks[0];                               \
         X.v[1] += 8;                                                    \
     }                                                                   \
@@ -714,6 +719,7 @@ threefry4x##W##_ctr_t threefry4x##W##_R(unsigned int Nrounds, threefry4x##W##_ct
                                                                         \
     return X;                                                           \
 }                                                                       \
+                                                                        \
  /** @ingroup ThreefryNxW */                                            \
 enum r123_enum_threefry4x##W { threefry4x##W##_rounds = THREEFRY4x##W##_DEFAULT_ROUNDS };       \
 R123_CUDA_DEVICE R123_STATIC_INLINE R123_FORCE_INLINE(threefry4x##W##_ctr_t threefry4x##W(threefry4x##W##_ctr_t in, threefry4x##W##_key_t k)); \
@@ -721,11 +727,12 @@ R123_CUDA_DEVICE R123_STATIC_INLINE                                     \
 threefry4x##W##_ctr_t threefry4x##W(threefry4x##W##_ctr_t in, threefry4x##W##_key_t k){ \
     return threefry4x##W##_R(threefry4x##W##_rounds, in, k);            \
 }
-/** \endcond */
 
+#if R123_USE_64BIT
 _threefry2x_tpl(64)
-_threefry2x_tpl(32)
 _threefry4x_tpl(64)
+#endif
+_threefry2x_tpl(32)
 _threefry4x_tpl(32)
 
 /* gcc4.5 and 4.6 seem to optimize a macro-ized threefryNxW better
@@ -735,30 +742,29 @@ _threefry4x_tpl(32)
 #define threefry2x64(c,k) threefry2x64_R(threefry2x64_rounds, c, k)
 #define threefry4x64(c,k) threefry4x64_R(threefry4x64_rounds, c, k)
 
-#ifdef __cplusplus
-/** \cond HIDDEN_FROM_DOXYGEN */
+#if defined(__cplusplus)
 #define _threefryNxWclass_tpl(NxW)                                      \
 namespace r123{                                                     \
-template<unsigned int R>                                                  \
+template<unsigned int ROUNDS>                                                  \
  struct Threefry##NxW##_R{                                              \
     typedef threefry##NxW##_ctr_t ctr_type;                             \
     typedef threefry##NxW##_key_t key_type;                             \
     typedef threefry##NxW##_key_t ukey_type;                            \
-    static const unsigned int rounds=R;                                 \
+    static const R123_METAL_CONSTANT_ADDRESS_SPACE unsigned int rounds=ROUNDS;                            \
    inline R123_CUDA_DEVICE R123_FORCE_INLINE(ctr_type operator()(ctr_type ctr, key_type key)){ \
-        R123_STATIC_ASSERT(R<=72, "threefry is only unrolled up to 72 rounds\n"); \
-        return threefry##NxW##_R(R, ctr, key);                              \
+        R123_STATIC_ASSERT(ROUNDS<=72, "threefry is only unrolled up to 72 rounds\n"); \
+        return threefry##NxW##_R(ROUNDS, ctr, key);                              \
     }                                                                   \
 };                                                                      \
  typedef Threefry##NxW##_R<threefry##NxW##_rounds> Threefry##NxW;       \
 } // namespace r123
 
-/** \endcond */
-
 _threefryNxWclass_tpl(2x32)
 _threefryNxWclass_tpl(4x32)
+#if R123_USE_64BIT
 _threefryNxWclass_tpl(2x64)
 _threefryNxWclass_tpl(4x64)
+#endif
 
 /* The _tpl macros don't quite work to do string-pasting inside comments.
    so we just write out the boilerplate documentation four times... */

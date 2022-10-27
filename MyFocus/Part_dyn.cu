@@ -8,11 +8,11 @@ Facundo Sheffield - 2022
 #include <stdlib.h>
 #include <math.h>
 #include <sys/time.h>
-#include <cuda.h>
-#include "Random123/philox.h"  // random numbers in GPU
-#include "Random123/u01.h"  // to get uniform deviates [0,1]
-//#include "Random123/u01fixedpt.h"    // to get uniform deviates [0,1] (w/cuda8)
 
+#include "Random123/philox.h"  // random numbers in GPU
+//#include "Random123/u01.h"  // to get uniform deviates [0,1] (w/cuda7, Random123 ver2017)
+#include "Random123/u01fixedpt.h"    // to get uniform deviates [0,1] (w/cuda8)
+#include <cuda.h>
 
 #include "curso.h"
 
