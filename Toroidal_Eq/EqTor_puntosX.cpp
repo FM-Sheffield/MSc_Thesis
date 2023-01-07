@@ -52,7 +52,7 @@ void InitParamsNorm(string Type, double& R_zero, double& a, double& B0, double& 
     else if (Type == "DIII-D") {
         double R_zero_ = 1.67;  
         double a_ = 0.67;  
-        double B0_ = 2.2;
+        double B0_ = 2.0;  // instead of 2.2 T, to reduce the q-safety factor
         double Ip_ = 0.9;
 
         R_zero = 1;
@@ -60,7 +60,7 @@ void InitParamsNorm(string Type, double& R_zero, double& a, double& B0, double& 
         B0 = 1;
         Ip = Ip_ * 4 * PI * pow(10, -1) / (B0_ * R_zero_);
         k = 1.43;  // k at X-points
-        Beta = 0.015;
+        Beta = 1.14*0.015;
         Ri = R_zero - a;
         Ro = R_zero + a;
         Rt = (R_zero - delta * a);  // *1.1 para puntos X si delta es d_95, siguiendo Cerfon-Freidberg (0.9 para R con dpos)
@@ -301,8 +301,9 @@ double Psi(double R, double Z, double M, double S1, double S2, double alpha_i, d
     return C1 + C2 * psi2_RZ + C3 * psi3_RZ + C4 * psi4_RZ + C5 * psi5_RZ + C6 * psi6_RZ + C7 * psi7_RZ + C8 * psi8_RZ + f1_RZ + f2_RZ;
 }
 
-// Prints the coefficients of Psi
-void PrintPsiCoeffs(double R, double Z, double M, double S1, double S2, double alpha_i, double alpha_o, double Ri, double Ro, double Rx, double Zx, double Ra, double Za) {
+// Returns the coefficients of Psi
+void ReturnPsiCoeffs(double R, double Z, double M, double S1, double S2, double alpha_i, double alpha_o, double Ri, double Ro, double Rx,
+    double Zx, double Ra, double Za, double *coeffs) {
     // Psi_h = c1 + c2*Psi2 + c3*Psi3 + c4*Psi4 + c5*Psi5 + c6*Psi6 + c7*Psi7 + c8*Psi8
     // Psi_p = f1 + f2
 
@@ -529,7 +530,14 @@ void PrintPsiCoeffs(double R, double Z, double M, double S1, double S2, double a
 
     cout << std::setprecision(10) << "Psi Coeffs:\n" << "C1= " << C1 << '\n' << "C2= " << C2 << '\n' << "C3= " << C3 << '\n' << "C4= " << C4 << '\n' << "C5= " << C5 << '\n' << "C6= " << C6 << '\n'
         << "C7= " << C7 << '\n' << "C8= " << C8 << endl;
-    
+    coeffs[0] = C1;
+    coeffs[1] = C2;
+    coeffs[2] = C3;
+    coeffs[3] = C4;
+    coeffs[4] = C5;
+    coeffs[5] = C6;
+    coeffs[6] = C7;
+    coeffs[7] = C8;
 }
 
 // Calculates |B|^2 based on the poloidal flux at (R,Z)
@@ -656,18 +664,24 @@ int main()
     // set paramenters
     double R_zero = 0, a = 0, B0 = 0, Ip = 0, k = 0, Beta = 0;
     double Ri = 0, Ro = 0, Rx = 0, Zx = 0, Ra = 0, Za = 0;
-    double M = 1;
+    double M = 0.01;
     double delta = -0.61;  // triangularity at X points
 
-    unsigned int s_iterations = 4, alp_o_iterations = 6, alp_i_iterations = 6;
+
+    unsigned int s_iterations = 1, alp_o_iterations = 1, alp_i_iterations = 1;
     
+
+    // 3 for loops for s, alpha_i, alpha_o to calculate the several equilibria at once
     for (unsigned int i_ = 0; i_ < s_iterations; i_++) {
         for (unsigned int j_ = 0; j_ < alp_i_iterations; j_++) {
             for (unsigned int k_ = 0; k_ < alp_o_iterations; k_++) {
 
-            double s = 0.02+2*i_ / 100.0;
-            double alpha_i = 0.5 - j_ * 1.0;
-            double alpha_o = -0.5 + k_ * 1.0;
+            //double s = 0.078+2*i_ / 100.0;
+            //double alpha_i = -2.5 - j_ * 1.0;
+            //double alpha_o = 3.5 + k_ * 1.0;
+            double s = 0.082 + 2 * i_ / 100.0;
+            double alpha_i = -4.5 - j_ * 1.0;
+            double alpha_o = 2 + k_ * 1.0;
             cout << "s= " << s << '\n' << "alpha_i= " << alpha_i << '\n' << "alpha_o= " << alpha_o << '\n';
 
             // Initialize paramenters
@@ -717,17 +731,23 @@ int main()
             dr = 3 * a / N;  // = c * a/N, where the domain is  R_zero -c*a/2 < R < R_zero + c*a/2
             dz = 2.4 * Zx / N; //-1.2Zt < Z < 1.2Zt
 
-            string FileName = "PolFlux_DIIID_cand4_M=1_dneg/", square = "s=", alphai = "alpha_i=", alphao = "alpha_o=", area = "A=", volume = "V=";
+            string FileName = "PolFlux_DIIID_cand5/", beta_coef="Beta=", square = "s=", alphai = "alpha_i=", alphao = "alpha_o=", area = "A=", volume = "V=";
+            beta_coef += format("{:.4f}", Beta) + '_';
             square += format("{:.4f}", s)+'_';
             alphai += format("{:.4f}", alpha_i)+'_';
             alphao += format("{:.4f}", alpha_o) + '_';
             area += format("{:.4f}", A) + '_';
             volume += format("{:.4f}", V);
 
-            FileName += square + alphai + alphao + area + volume + ".txt";
+            FileName += beta_coef + square + alphai + alphao + area + volume + ".txt";
             ofstream oFile(FileName);  // create a file for flux analysis
             //ofstream oFile("PolFlux_DIIID_cand4_M=1_test.txt");
             if (oFile.is_open()) {
+                double Coeffs[8];
+                ReturnPsiCoeffs(Ri, 0, M, S[0], S[1], alpha_i, alpha_o, Ri, Ro, Rx, Zx, Ra, Za, Coeffs);
+
+                /*
+                // Saves the flux in a grid
                 oFile << "# DIIID-like flux equilibrium, M=" << M << ", S1=" << S[0] << ", S2=" << S[1] << ", Rx=" << Rx << ", Zx=" << Zx << ".Below are N, dr, dz, and Zt(Normalized)" << '\n';
                 oFile << N << '\t' << dr << '\t' << dz << '\t' << a << '\t' << Zx << '\n';
                 for (int m = 0; m < N; m++) {
@@ -737,6 +757,13 @@ int main()
                         oFile << Psi(R, Z, M, S[0], S[1], alpha_i, alpha_o, Ri, Ro, Rx, Zx, Ra, Za) << '\t';
                     }
                 }
+                */
+                oFile << "# DIIID-like flux equilibrium, M=" << M << ", Rx=" << Rx << ", Zx=" << Zx << ", delta="<< delta << ".Below are S1, S2 and the 8 flux coeffs" << '\n';
+                oFile << std::setprecision(10) << S[0] << '\t' << S[1];
+                for (int i = 0; i < 8; i++) {
+                    oFile << std::setprecision(10) << '\t' << Coeffs[i];
+                }
+                oFile << '\n';
                 oFile.close();
             }
             }
