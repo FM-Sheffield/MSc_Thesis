@@ -351,12 +351,12 @@ __device__ void Elastic_collisions_SV_euler (struct Part *He, double Dt, double 
 	double v_col[6]; 	//collision frequencies
 
 	//conversions
-	double Dt_au = Dt*ta*c_cgs/(137.0*a0_cgs);  // Atomic units???
+	double Dt_au = Dt*ta*c_cgs/(137.0*a0_cgs);  // Atomic units
 	double Ma = 1836.2*mu;						// Projectile mass
 	double v0_c = sqrt(2.0*(dEp_MeV/27.2E-6)/Ma)/137.0; // = v0/c
 
 	double vmod = sqrt( (*He).v[0]*(*He).v[0] + (*He).v[1]*(*He).v[1] + (*He).v[2]*(*He).v[2] );
-	// hasta acá llega bien
+
 	double v_au = vmod*v0_c*137.0;
 
 	double E_au = 0.5*Ma*v_au*v_au;  // E_au=2941.176253
@@ -396,16 +396,18 @@ __device__ void Elastic_collisions_SV_euler (struct Part *He, double Dt, double 
 	double Ran_3 = Ran_EC[1];
 
 	//Upgrade
-	double Dv_sl = -(v_col[0]+v_col[1])*Dt_au*vmod; // delta de fricción,  Dv_sl=4308688739221710.50
-	double Dv_par =  sqrt((v_col[2]+v_col[3])*Dt_au)*vmod; // nan
-	double Dv_perp = sqrt(0.5*(v_col[4]+v_col[5])*Dt_au)*vmod;  // nan
+	double Dv_sl = -(v_col[0]+v_col[1])*Dt_au*vmod; // delta de fricción
+	double Dv_par =  sqrt((v_col[2]+v_col[3])*Dt_au)*vmod; 
+	double Dv_perp = sqrt(0.5*(v_col[4]+v_col[5])*Dt_au)*vmod;  
+
+	printf("Delta de fricción: %f\nDelta par: %f\nDelta perp %f", Dv_sl, Dv_par, Dv_perp);
 
 
-	(*He).v[0] = (*He).v[0] + (Dv_sl + Ran_1*Dv_par)*v[0] + Dv_perp*(Ran_2*w[0] + Ran_3*u[0]);  // NAn
-	(*He).v[1] = (*He).v[1] + (Dv_sl + Ran_1*Dv_par)*v[1] + Dv_perp*(Ran_2*w[1] + Ran_3*u[1]);  //nan
-	(*He).v[2] = (*He).v[2] + (Dv_sl + Ran_1*Dv_par)*v[2] + Dv_perp*(Ran_2*w[2] + Ran_3*u[2]);  // nan
+	(*He).v[0] = (*He).v[0] + (Dv_sl + Ran_1*Dv_par)*v[0] + Dv_perp*(Ran_2*w[0] + Ran_3*u[0]);  
+	(*He).v[1] = (*He).v[1] + (Dv_sl + Ran_1*Dv_par)*v[1] + Dv_perp*(Ran_2*w[1] + Ran_3*u[1]);  
+	(*He).v[2] = (*He).v[2] + (Dv_sl + Ran_1*Dv_par)*v[2] + Dv_perp*(Ran_2*w[2] + Ran_3*u[2]);  
 
-	vmod = sqrt( (*He).v[0]*(*He).v[0] + (*He).v[1]*(*He).v[1] + (*He).v[2]*(*He).v[2] );  // = NaN
+	vmod = sqrt( (*He).v[0]*(*He).v[0] + (*He).v[1]*(*He).v[1] + (*He).v[2]*(*He).v[2] );  
 	//printf("Inside 'Elastic_collisions_SV_euler': vmod=%f\t", vmod);
 
 	(*He).E_keV = dEp_MeV*vmod*vmod*1000.0;

@@ -117,6 +117,10 @@ const double S1 = -0.5831152318; const double S2 = 0.05676267719;
 const double C1 = -0.002190157406; const double C2 = 0.5580341791; const double C3 = 0.6618636006; const double C4 = 0.4918686431; 
 const double C5 = 0.5099540459; const double C6 = 0.02875339697; const double C7 = -0.05279197327; const double C8 = 0.02561018266;
 
+// Negative T - DIIID -cand 5 (B=2T, A = 0.5671, V = 3.7117, Beta=0.0171):
+//const double S1 = -0.5631006988; const double S2 = 0.02730569101;    
+//const double C1 = -0.007373852213; const double C2 = 0.222975585; const double C3 = 0.5911120802; const double C4 = 0.1746814076; 
+//const double C5 = 0.2834793775; const double C6 = 0.01853961447; const double C7 = -0.05939706412; const double C8 = -0.03924367821;
 
 //Negative T - DIIID - cand 5 - (I=-0.9 MA, B=2T, A = ?, V = ?):
 //const double S1 = -0.1829396643; const double S2 = -1.098501102;    

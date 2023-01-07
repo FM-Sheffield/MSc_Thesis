@@ -37,8 +37,8 @@ const double R   = 1;				// Radio mayor del Toroide (previously R_cm)
 const double hR0    = R;                       // Radio normalizado
 const double Ep_MeV = .08;                              // Energía del proyectil (inicial, Mev)
 const double hmu    = 2.0;                              // fracción masa proyectil/masa proton (creo)
-const int    Npart  = 200000;  //            // Numero de partículas
-const int    hNstep = 21600000;				// Limite paso temporales. 24000000 @ dt=0.16~>40ms (1ms = 600000 steps)
+const int    Npart  = 20000;  //            // Numero de partículas
+const int    hNstep = 5400000;				// Limite paso temporales. 24000000 @ dt=0.16~>40ms (1ms = 600000 steps)
 const int m_steps = 1; 					// number of time steps to measure position
 const double hDt    = 0.16;                              // Temporal step (normalized)
 const double hZp    = 1.0;                              // Numero atomico proyectil
@@ -97,7 +97,7 @@ __device__ double mp_au = hmp_au;
 	//double Ionization_data[5];  // saves certain data at ionization. In order, [r, theta, z, v_pll/v, E_kev] 
 	double Escaped_data[5];    // saves data (r, th, z, E_kev, time) of a particle when it escapes
 
-	double Diagnosis_data[10][10];  // saves certain data of particles for further d	iagnosis at different times. 
+	double Diagnosis_data[10][10];  // saves certain data of particles for further diagnosis at different times. 
 							     // In order, Time_it*[r, theta, z, vr, vth, vz, pitch, E_kev, state, time]
 
 	#ifdef Z_1			
@@ -111,8 +111,6 @@ __device__ double mp_au = hmp_au;
 #include "Elastic_collision_module.h"  // Módulo de colisiones elásticas
 #include "Inelastic_collision_module.h"  // Módulo de colisiones ineslásticas
 
-#define NQ 70  // size of de Matrix Q (d_Q) used for the energy distribution
-
 // Control Trayectoria:
 struct Position {
 	double r[3];
@@ -121,14 +119,13 @@ struct Position {
 // ----------------
 
 //Control Trayectoria/Evolución temporal: ---------------------------
-__device__ void global_2D_add(double *Q, int Nr, int Nz, struct Part * d_He, double aux); 
-	// ^^Suma una cantidad aux a la matriz Q[Nr][Nz] en la posición (r,z) de la particula d_He, para calculo de distribuciones 2D
-__global__ void Evolution (struct Part * d_He, int Npart, long init, double * d_Q, double *d_Q_container) {
+
+__global__ void Evolution ( struct Part * d_He, int Npart, long init) {
 	//Evolución temporal "normal", asigna los tipos de órbitas en d_He.state
 
 	int id = blockIdx.x * blockDim.x + threadIdx.x;
 	
-	int diag_time[9] = {600000, 2400000, 2*2400000, 3*2400000, 4*2400000, 5*2400000, 6*2400000, 7*2400000, 8*2400000}; // times (iterations) at which to save data for diagnosis (except the last one)
+	int diag_time[9] = {500, 600000, 2*600000, 3*600000, 4*600000, 5*600000, 6*600000, 7*600000, 8*600000}; // times (iterations) at which to save data for diagnosis (except the last one)
 	
 	int Nec=80000;		// steps for elastic collisions - 80k is okay for E=80keV
 	int next_col=Nec;	// total steps for next collision
@@ -138,7 +135,7 @@ __global__ void Evolution (struct Part * d_He, int Npart, long init, double * d_
 	int i,kk;	//semilla random numbers
 	int q1 = 2;
 	double qq00,qq11,omega=16.e-4,tiempo,tiempo0; //flag
-	double s_flux, EkeV0;
+	double s_flux;
 
 	double y;// gamma
 
@@ -203,17 +200,11 @@ __global__ void Evolution (struct Part * d_He, int Npart, long init, double * d_
 				d_He[id].Diagnosis_data[diag_it][3] = d_He[id].v[0];
 				d_He[id].Diagnosis_data[diag_it][4] = d_He[id].v[1];
 				d_He[id].Diagnosis_data[diag_it][5] = d_He[id].v[2];
-				d_He[id].Diagnosis_data[diag_it][6] = d_He[id].pitch;  // NOTE: this is not the actually the pitch! its v_par
+				d_He[id].Diagnosis_data[diag_it][6] = d_He[id].pitch;
 				d_He[id].Diagnosis_data[diag_it][7] = d_He[id].E_keV;
 				d_He[id].Diagnosis_data[diag_it][8] = d_He[id].state;
 				d_He[id].Diagnosis_data[diag_it][9] = d_He[id].time;
-				
-				// copy the (diag_it)th Q matrix
-				for (int i = 0; i < NQ; i++) {
-						for (int j = 0; j < NQ; j++) {
-							d_Q_container[(NQ*NQ*diag_it)+(i*NQ + j)] = d_Q[i*NQ + j];  // careful with this, d_Q is being updated in parallel
-						}
-					}
+
 				diag_it++;
 			}
 
@@ -275,13 +266,13 @@ __global__ void Evolution (struct Part * d_He, int Npart, long init, double * d_
 			      	Nec = 1000;
 			      }else if(d_He[id].E_keV <= 100.0 && d_He[id].E_keV > 10.0){
 			      	Nec = 500;
-			      }else {
+			      }else if(d_He[id].E_keV <= 10.0 && d_He[id].E_keV > 1.0){
 			      	Nec = 100;
+			      }else{
+			      	Nec = 10;
 			      }
 			      if(n%Nec == 0){
-					EkeV0 = d_He[id].E_keV;
 					Elastic_collisions(d_He+id, 1.0*Nec*Dt, &i, init, id);
-					global_2D_add(d_Q, NQ, NQ, d_He+id, (EkeV0 - d_He[id].E_keV));
 				  }
 			/*
 			if(n == next_col){
@@ -402,41 +393,7 @@ __global__ void Evolution (struct Part * d_He, int Npart, long init, double * d_
 		d_He[id].Diagnosis_data[9][7] = d_He[id].E_keV;
 		d_He[id].Diagnosis_data[9][8] = d_He[id].state;
 		d_He[id].Diagnosis_data[9][9] = d_He[id].time;
-
-		// copy the 10th Q matrix
-		for (int i = 0; i < NQ; i++) {
-				for (int j = 0; j < NQ; j++) {
-					d_Q_container[(9*NQ*NQ)+(i*NQ + j)] = d_Q[i*NQ + j];  // careful with this, d_Q is being updated in parallel
-				}
-			}
 	}
-}
-
-
-__device__ void global_2D_add(double *Q, int Nr, int Nz, struct Part * d_He, double aux){
-	// Suma una cantidad aux a la matriz Q[Nr][Nz] en la posición (r,z) de la particula d_He, para calculo de distribuciones 2D
-	// Esta función va a evaluar distribuciones 2D (poloidal)
-	// en las que mas de un thread puede acceder a un elemento
-	// de la matriz ``al mismo tiempo''.
-	// Usamos operaciones atómicas para evitar el overlap.
-
-	int i,j;
-
-	double dr = (2*a)/((double)Nr-1.0);  
-	double dz = (2*Zx)/((double)Nz-1.0);
-
-	i = floor(((*d_He).r[0] - (R0-a))/dr);
-	j = floor(((*d_He).r[2] + Zx)/dz);
-
-	//es natural que hayan muchos i, j iguales.
-	//Entonces, la acumulación 'tipo CPU': 
-	//Q[i*Nz+j] = Q[i*Nz+j]+1.0;
-	//es incorrecta.
-
-	//Usando sm_60 en adelante con cuda8, es posible usar 
-	//operaciones atómicas con double.
-	atomicAdd(&(Q[i*Nz+j]),aux);
-
 }
 
 
@@ -446,9 +403,6 @@ int main(){
 	double xx[Npart],yy[Npart],zz[Npart],vx[Npart],vy[Npart],vz[Npart];
 	
 	struct Part He[Npart];
-	double Q[NQ][NQ] = {0};			// matrix for energy deposition
-	double Q_container[10*NQ*NQ]={0};	// container for Q matrix at different times
-
 	int ip;         			// Particle index
 	double x,r;				// Initial x position (initializated in fn init_r)
 	double rg[3];				// Guiding center.
@@ -500,12 +454,6 @@ int main(){
 		exit(1);}
 	fprintf(File_Diag,"# Several particle properties at 10 different times.\n# Time_it; R; theta; z; vr; vth; vz; pitch; E_kev; state; time\n");
 
-	FILE *File_Edist = fopen("Energy_dist_dpos.dat","w");  // energy deposition at different times
-	if(File_Edist == NULL){
-		printf("Error File_Edist");
-		exit(1);}
-	fprintf(File_Edist,"# Energy distribution matrix from R_i to R_o and -Zx to Zx at different times\n#dr=%f\tdz=%f\n",
-			(2*a)/((double)NQ-1.0),(2*Zx)/((double)NQ-1.0));
 
 	/*********************************************/ 
 
@@ -565,18 +513,9 @@ int main(){
 	load_atomic_processes();	// loads the data from the collision matrices to the GPU
 
 	struct Part *d_He;
-	double *d_Q;			// matrix for energy deposition
-	double *d_Q_container;
-
 	HANDLE_ERROR(cudaMalloc( (void**) &d_He, Npart*sizeof(Part) ));
     HANDLE_ERROR(cudaMemcpy( d_He, &He, Npart*sizeof(Part), cudaMemcpyHostToDevice));
 	checkCUDAError("Particle copy: failed \n");
-	HANDLE_ERROR(cudaMalloc( (void**) &d_Q, NQ*NQ*sizeof(double) ));
-	HANDLE_ERROR(cudaMemcpy( d_Q, &Q, NQ*NQ*sizeof(double), cudaMemcpyHostToDevice )); 
-	checkCUDAError("Q copy: failed \n");
-	HANDLE_ERROR(cudaMalloc( (void**) &d_Q_container, 10*NQ*NQ*sizeof(double) ));
-	HANDLE_ERROR(cudaMemcpy( d_Q_container, &Q_container, 10*NQ*NQ*sizeof(double), cudaMemcpyHostToDevice )); 
-	checkCUDAError("Q copy: failed \n");
 	
     int dev = 0;
         if(cudaGetDevice(&dev)!= cudaSuccess)
@@ -593,7 +532,7 @@ int main(){
   	dim3 grid_size(numblocks);
 
 	//Control Trayectoria: -------------------------
-	Evolution<<< grid_size,block_size >>> (d_He, Npart, init, d_Q, d_Q_container);
+	Evolution<<< grid_size,block_size >>> (d_He, Npart, init);
 
 	// After Evol
 	gettimeofday(&finish,NULL);
@@ -603,18 +542,10 @@ int main(){
 
 	checkCUDAError("Kernel GPU: failed \n");
 	/*  ********   */
-	HANDLE_ERROR(cudaMemcpy(&Q, d_Q, NQ*NQ*sizeof(double), cudaMemcpyDeviceToHost));
-	checkCUDAError("copy to CPU: failed \n");
-
-	HANDLE_ERROR(cudaMemcpy(&Q_container, d_Q_container, 10*NQ*NQ*sizeof(double), cudaMemcpyDeviceToHost));
-	checkCUDAError("copy to CPU: failed \n");
 	
 	HANDLE_ERROR(cudaMemcpy(&He, d_He, Npart*sizeof(Part), cudaMemcpyDeviceToHost));
 	checkCUDAError("copy to CPU: failed \n");
-
 	HANDLE_ERROR(cudaFree(d_He));
-	HANDLE_ERROR(cudaFree(d_Q));
-	HANDLE_ERROR(cudaFree(d_Q_container));
 	
 
 	int jj;
@@ -684,18 +615,6 @@ int main(){
 				He[ip].Diagnosis_data[it_diag][4], He[ip].Diagnosis_data[it_diag][5], He[ip].Diagnosis_data[it_diag][6], 
 				He[ip].Diagnosis_data[it_diag][7], He[ip].Diagnosis_data[it_diag][8], He[ip].Diagnosis_data[it_diag][9]);
 		}
-
-		// Save each Q as vector
-		for (int i=0; i<NQ-1; i++){
-			for(int j=0; j<NQ; j++){
-				fprintf(File_Edist, "%f\t", Q_container[(NQ*NQ*it_diag)+(i*NQ+j)]);
-			}
-		}
-		for(int j=0; j<NQ-1; j++){
-				fprintf(File_Edist, "%f\t", Q_container[(NQ*NQ*it_diag)+(NQ*(NQ-1)+j)]);
-			}
-		fprintf(File_Edist, "%f\n", Q_container[(NQ*NQ*it_diag)+(NQ*NQ-1)]);
-		// Note: Q _might_ be accidentally transposed. Will not fix this because it's a trivial fix in python (Q=Q.T)
 	}
 
 	//---------------------------------------
@@ -719,7 +638,7 @@ int main(){
 	//fclose(File_Ion);
 	fclose(File_Esc);
 	fclose(File_Diag);
-	fclose(File_Edist);
+
 	
 	
 

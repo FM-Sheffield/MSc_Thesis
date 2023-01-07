@@ -602,7 +602,7 @@ __host__ __device__ double Proyection(double r,double z, double vr,double vt,dou
 
 		proyection = vr*v[0] + vt*v[1] + vz*v[2];
 		//printf("proyection= %e\n", proyection);
-		return proyection;				
+		return proyection;				// returns v_par
 }
 
 //__device__ void RK46_NL(struct Part *He,double y,double *B1r1,double *B1r2,double *B1z1,double *B1z2){
